@@ -1,0 +1,35 @@
+.file-upload {
+  padding: 20px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: white;
+}
+
+.file-upload input[type="file"] {
+  margin-bottom: 10px;
+}
+
+.file-name {
+  margin: 10px 0;
+  color: #27ae60;
+  font-weight: bold;
+}
+
+.file-upload button {
+  padding: 10px 20px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.file-upload button:hover {
+  background-color: #2980b9;
+}
+
+.file-upload button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
