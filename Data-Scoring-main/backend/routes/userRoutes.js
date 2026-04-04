@@ -1,0 +1,15 @@
+const express = require('express');
+const router = express.Router();
+const userController = require('../controllers/userController');
+const auth = require('../middleware/auth');
+
+router.post('/signup',             userController.signup);
+router.post('/verify-signup-otp',  userController.verifySignupOtp);
+router.post('/login',              userController.login);
+router.post('/verify-login-otp',   userController.verifyLoginOtp);
+router.post('/resend-otp',         userController.resendOtp);
+router.get('/profile',             auth, userController.getProfile);
+router.put('/profile',             auth, userController.updateProfile);
+router.put('/change-password',     auth, userController.changePassword);
+
+module.exports = router;
