@@ -23,20 +23,20 @@ exports.resolveIssue = async (req, res) => {
 
 exports.getDashboardStats = async (req, res) => {
   try {
-    const totalAnalyses = await Analysis.count();
-    const recentAnalyses = await Analysis.findAll({ order: [['createdAt', 'DESC']], limit: 5 });
-    const allAnalyses = await Analysis.findAll({ attributes: ['overallScore'] });
+    const uid = req.userId;
+    const userWhere = uid ? { userId: uid } : {};
+    const totalAnalyses = await Analysis.count({ where: userWhere });
+    const recentAnalyses = await Analysis.findAll({ where: userWhere, order: [['createdAt', 'DESC']], limit: 5 });
+    const allAnalyses = await Analysis.findAll({ where: userWhere, attributes: ['overallScore'] });
     const avgScore = allAnalyses.length > 0
       ? Math.round(allAnalyses.reduce((s, a) => s + a.overallScore, 0) / allAnalyses.length) : 0;
     const criticalIssues = await DataIssue.count({ where: { severity: 'Critical', resolved: false } });
-
     const scoreDistribution = {
-      excellent: await Analysis.count({ where: { overallScore: { [Op.gte]: 90 } } }),
-      good:      await Analysis.count({ where: { overallScore: { [Op.gte]: 80, [Op.lt]: 90 } } }),
-      fair:      await Analysis.count({ where: { overallScore: { [Op.gte]: 60, [Op.lt]: 80 } } }),
-      poor:      await Analysis.count({ where: { overallScore: { [Op.lt]: 60 } } }),
+      excellent: await Analysis.count({ where: { ...userWhere, overallScore: { [Op.gte]: 90 } } }),
+      good:      await Analysis.count({ where: { ...userWhere, overallScore: { [Op.gte]: 80, [Op.lt]: 90 } } }),
+      fair:      await Analysis.count({ where: { ...userWhere, overallScore: { [Op.gte]: 60, [Op.lt]: 80 } } }),
+      poor:      await Analysis.count({ where: { ...userWhere, overallScore: { [Op.lt]: 60 } } }),
     };
-
     res.json({
       totalAnalyses, avgScore, criticalIssues,
       recentAnalyses: recentAnalyses.map(a => ({
@@ -52,9 +52,11 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getTrends = async (req, res) => {
   try {
+    const uid = req.userId;
+    const userWhere = uid ? { userId: uid } : {};
     const last30Days = new Date();
     last30Days.setDate(last30Days.getDate() - 30);
-    const analyses = await Analysis.findAll({ where: { createdAt: { [Op.gte]: last30Days } }, order: [['createdAt', 'ASC']] });
+    const analyses = await Analysis.findAll({ where: { ...userWhere, createdAt: { [Op.gte]: last30Days } }, order: [['createdAt', 'ASC']] });
     res.json(analyses.map(a => ({
       date: a.createdAt.toISOString().split('T')[0],
       score: a.overallScore, completeness: a.completeness,

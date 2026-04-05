@@ -14,7 +14,9 @@ const Analysis = sequelize.define('Analysis', {
   problemRowPct: { type: DataTypes.FLOAT, defaultValue: 0 },
   rowQuality:    { type: DataTypes.FLOAT, defaultValue: 0 },
   status: { type: DataTypes.STRING, defaultValue: 'Completed' },
+  userId: { type: DataTypes.INTEGER, allowNull: true },
   rawData: { type: DataTypes.JSONB, defaultValue: [] },
+  verificationStatus: { type: DataTypes.JSONB, defaultValue: {} },
 }, { tableName: 'analyses', timestamps: true, createdAt: 'createdAt', updatedAt: 'updatedAt' });
 
 module.exports = Analysis;

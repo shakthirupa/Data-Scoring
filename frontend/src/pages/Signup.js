@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, ArrowRight, AlertCircle, Zap, CheckCircle } from 'lucide-react';
+import { User, Mail, Lock, ArrowRight, AlertCircle, Zap, CheckCircle, Building2, KeyRound } from 'lucide-react';
+
+const ORGANISATIONS = ['Banks', 'Education', 'Ecommerce', 'Healthcare', 'Government'];
 
 const glass = {
   background: 'rgba(255,255,255,0.65)',
@@ -20,7 +22,10 @@ const features = [
 
 export default function Signup() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '', organisation: '' });
+  const [otpStep, setOtpStep] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -34,10 +39,32 @@ export default function Signup() {
       const res = await fetch('http://localhost:5000/api/user/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, email: form.email, password: form.password }),
+        body: JSON.stringify({ name: form.name, email: form.email, password: form.password, organisation: form.organisation }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Signup failed');
+      setPendingEmail(form.email);
+      setOtpStep(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!otp || otp.length !== 6) return setError('Please enter the 6-digit OTP');
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/user/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'OTP verification failed');
       localStorage.setItem('auth_token', data.token);
       localStorage.setItem('user_name', data.name);
       navigate('/dashboard');
@@ -123,7 +150,53 @@ export default function Signup() {
           </div>
 
           <div className="p-8" style={{ ...glass, boxShadow: '0 20px 60px rgba(16,185,129,0.1), 0 4px 20px rgba(0,0,0,0.06)' }}>
-            <form onSubmit={handleSubmit} className="space-y-3.5">
+            {otpStep ? (
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
+                <div className="text-center mb-2">
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3"
+                    style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                    <KeyRound size={24} className="text-brand-500" />
+                  </div>
+                  <p className="text-sm text-gray-600">We sent a 6-digit OTP to</p>
+                  <p className="text-sm font-bold text-gray-900">{pendingEmail}</p>
+                  <p className="text-xs text-gray-400 mt-1">Expires in 5 minutes</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1.5">Enter OTP</label>
+                  <div className="relative">
+                    <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text" maxLength={6} required
+                      value={otp}
+                      onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                      placeholder="••••••"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-gray-900 placeholder-gray-400 text-sm outline-none transition-all text-center tracking-widest font-bold text-lg"
+                      style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(16,185,129,0.2)' }}
+                      onFocus={e => e.target.style.borderColor = 'rgba(16,185,129,0.6)'}
+                      onBlur={e => e.target.style.borderColor = 'rgba(16,185,129,0.2)'}
+                    />
+                  </div>
+                </div>
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 text-sm text-red-600 px-4 py-3 rounded-xl"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <AlertCircle size={14} /> {error}
+                  </motion.div>
+                )}
+                <motion.button type="submit" disabled={loading}
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                  className="w-full py-2.5 text-white font-semibold rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 4px 20px rgba(16,185,129,0.4)' }}>
+                  {loading ? 'Verifying...' : <><span>Verify & Create Account</span><ArrowRight size={16} /></>}
+                </motion.button>
+                <button type="button" onClick={() => { setOtpStep(false); setOtp(''); setError(''); }}
+                  className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors mt-1">
+                  ← Back to signup
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-3.5">
               {fields.map(({ label, key, type, placeholder, icon: Icon }) => (
                 <div key={key}>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1.5">{label}</label>
@@ -143,6 +216,28 @@ export default function Signup() {
                 </div>
               ))}
 
+              {/* Organisation dropdown */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1.5">Organisation Type</label>
+                <div className="relative">
+                  <Building2 size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <select
+                    required
+                    value={form.organisation}
+                    onChange={e => setForm({ ...form, organisation: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none transition-all appearance-none"
+                    style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(16,185,129,0.2)', color: form.organisation ? '#111827' : '#9ca3af' }}
+                    onFocus={e => e.target.style.borderColor = 'rgba(16,185,129,0.6)'}
+                    onBlur={e => e.target.style.borderColor = 'rgba(16,185,129,0.2)'}
+                  >
+                    <option value="" disabled>Select your organisation type</option>
+                    {ORGANISATIONS.map(org => (
+                      <option key={org} value={org}>{org}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               {error && (
                 <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
                   className="flex items-center gap-2 text-sm text-red-600 px-4 py-3 rounded-xl"
@@ -158,6 +253,7 @@ export default function Signup() {
                 {loading ? 'Creating account...' : <><span>Create Account</span><ArrowRight size={16} /></>}
               </motion.button>
             </form>
+            )}
 
             <p className="text-center text-sm text-gray-500 mt-5">
               Already have an account?{' '}

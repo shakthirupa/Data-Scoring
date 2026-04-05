@@ -31,6 +31,7 @@ export default function Login() {
       if (!res.ok) throw new Error(data.error || 'Login failed');
       localStorage.setItem('auth_token', data.token);
       localStorage.setItem('user_name', data.name);
+      localStorage.removeItem('verify_folder_id');
       navigate('/dashboard');
     } catch (err) {
       setError(err.message);

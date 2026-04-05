@@ -13,6 +13,12 @@ const https = require('https');
 const http = require('http');
 const xlsx = require('xlsx');
 const xml2js = require('xml2js');
+const pdfParse = require('pdf-parse');
+const { PDFParse: PDFParseClass } = pdfParse;
+const parsePdf = PDFParseClass ? (buf) => new PDFParseClass().parse(buf) : pdfParse;
+const mammoth  = require('mammoth');
+const Tesseract = require('tesseract.js');
+const { ocrPdf } = require('../utils/pdfOcr');
 
 async function runAndSaveConsistency(analysisId, rows) {
   try {
@@ -25,6 +31,8 @@ async function runAndSaveConsistency(analysisId, rows) {
       ruleSummary: result.ruleSummary,
       flaggedRows: result.flaggedRows.slice(0, 500),
     });
+    // Keep Analysis.consistency in sync with the rule-engine score
+    await Analysis.update({ consistency: result.consistencyScore }, { where: { id: analysisId } });
   } catch (_) {}
 }
 
@@ -61,9 +69,14 @@ function calculateScores(data) {
   data.forEach(row => columns.forEach(col => { if (!isEmpty(row[col])) filledCells++; }));
   const completeness = Math.round((filledCells / totalCells) * 100);
 
-  // Uniqueness = (UniqueRecords / TotalRecords) × 100
-  const uniqueRows = new Set(data.map(row => JSON.stringify(row))).size;
-  const uniqueness = Math.round((uniqueRows / totalRows) * 100);
+  // Uniqueness: for single-row docs, base on field fill ratio instead of row dedup
+  let uniqueness;
+  if (totalRows === 1) {
+    uniqueness = completeness; // single record — uniqueness mirrors completeness
+  } else {
+    const uniqueRows = new Set(data.map(row => JSON.stringify(row))).size;
+    uniqueness = Math.round((uniqueRows / totalRows) * 100);
+  }
 
   // Validity = (ValidEntries / TotalEntries) × 100
   // ValidEntries = cells that are non-empty AND pass format validation
@@ -88,14 +101,15 @@ function calculateScores(data) {
   const consistency = Math.round(((columns.length - inconsistentCols) / Math.max(columns.length, 1)) * 100);
 
   // Problem Rows% = (RowsWithIssues / TotalRows) × 100
-  // Includes: rows with missing/invalid cells + duplicate rows
   const seen = new Set();
   const dupRowIndices = new Set();
-  data.forEach((row, idx) => {
-    const k = JSON.stringify(row);
-    if (seen.has(k)) dupRowIndices.add(idx);
-    else seen.add(k);
-  });
+  if (totalRows > 1) {
+    data.forEach((row, idx) => {
+      const k = JSON.stringify(row);
+      if (seen.has(k)) dupRowIndices.add(idx);
+      else seen.add(k);
+    });
+  }
   const problemRows = data.filter((row, idx) =>
     dupRowIndices.has(idx) ||
     columns.some(col => isEmpty(row[col]) || isCellInvalid(row[col], col.toLowerCase()))
@@ -226,6 +240,183 @@ async function parseGoogleSheet(url) {
   return rows;
 }
 
+// ── Label-aware field extractor ─────────────────────────────────────────────
+// Maps known label synonyms to canonical field names + their value patterns.
+// Scans the text for "<label> <separator> <value>" and also for values that
+// appear on the line immediately after a label-only line.
+const FIELD_PATTERNS = [
+  {
+    field: 'aadhaar',
+    labels: /aadhaar|aadhar|adhaar|adhar|uid|unique\s*id(?:entification)?|identity\s*no?|id\s*no?/i,
+    value: /\b(\d{4}[\s-]?\d{4}[\s-]?\d{4})\b/,
+    clean: v => v.replace(/[\s-]/g, ''),
+  },
+  {
+    field: 'pan',
+    labels: /pan|permanent\s*account\s*no?|income\s*tax\s*id/i,
+    value: /\b([A-Z]{5}\d{4}[A-Z])\b/,
+    clean: v => v,
+  },
+  {
+    field: 'voter_id',
+    labels: /voter|epic|election\s*card|voter\s*id/i,
+    value: /\b([A-Z]{3}\d{7})\b/,
+    clean: v => v,
+  },
+  {
+    field: 'passport',
+    labels: /passport/i,
+    value: /\b([A-Z]\d{7})\b/,
+    clean: v => v,
+  },
+  {
+    field: 'driving_license',
+    labels: /driving\s*licen[sc]e|dl\s*no?|licence\s*no?/i,
+    value: /\b([A-Z]{2}\d{2}[\s-]?\d{4}[\s-]?\d{7})\b/,
+    clean: v => v.replace(/[\s-]/g, ''),
+  },
+  {
+    field: 'phone',
+    labels: /phone|mobile|contact|cell|tel(?:ephone)?/i,
+    value: /\b(\+?\d[\d\s\-]{8,13}\d)\b/,
+    clean: v => v.trim(),
+  },
+  {
+    field: 'email',
+    labels: /e?-?mail/i,
+    value: /\b([\w.+-]+@[\w-]+\.[\w.]+)\b/,
+    clean: v => v,
+  },
+  {
+    field: 'dob',
+    labels: /date\s*of\s*birth|dob|birth\s*date/i,
+    value: /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/,
+    clean: v => v,
+  },
+  {
+    field: 'name',
+    labels: /\bname\b|full\s*name|applicant\s*name|student\s*name/i,
+    value: /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})/,
+    clean: v => v.trim(),
+  },
+];
+
+function extractLabeledFields(fullText, record) {
+  // Strategy 1: "Label: value" or "Label - value" on the same segment
+  for (const fp of FIELD_PATTERNS) {
+    if (record[fp.field]) continue;
+    // Build a pattern: label synonym followed by optional separator then value
+    const re = new RegExp(
+      fp.labels.source + '[^\\n]{0,30}?' + fp.value.source,
+      'i'
+    );
+    const m = fullText.match(re);
+    if (m) {
+      // Extract just the value group (last capture group)
+      const valMatch = m[0].match(fp.value);
+      if (valMatch) { record[fp.field] = fp.clean(valMatch[1]); continue; }
+    }
+
+    // Strategy 2: label on one line, value on the next (common in PDFs)
+    const lineRe = new RegExp(
+      '(' + fp.labels.source + ')[^\\n]*\\n[^\\n]*?' + fp.value.source,
+      'i'
+    );
+    const lm = fullText.replace(/\r/g, '').match(lineRe);
+    if (lm) {
+      const valMatch = lm[0].match(fp.value);
+      if (valMatch) record[fp.field] = fp.clean(valMatch[1]);
+    }
+  }
+
+  // Blind fallback for fields not yet found
+  if (!record['aadhaar']) {
+    const m = fullText.match(/\b(\d{4}[\s-]?\d{4}[\s-]?\d{4})\b/);
+    if (m) record['aadhaar'] = m[1].replace(/[\s-]/g, '');
+  }
+  if (!record['pan']) {
+    const m = fullText.match(/\b([A-Z]{5}\d{4}[A-Z])\b/);
+    if (m) record['pan'] = m[1];
+  }
+  if (!record['phone']) {
+    const m = fullText.match(/\b(\+?\d[\d\s\-]{8,13}\d)\b/);
+    if (m) record['phone'] = m[1].trim();
+  }
+  if (!record['email']) {
+    const m = fullText.match(/\b([\w.+-]+@[\w-]+\.[\w.]+)\b/);
+    if (m) record['email'] = m[1];
+  }
+}
+
+// ── Document text → structured rows ─────────────────────────────────────────
+function textToRows(text, fileName) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // 1. Pipe-delimited table (e.g. Markdown tables in Word/PDF)
+  const pipeLines = lines.filter(l => l.includes('|') && l.split('|').filter(Boolean).length >= 2);
+  if (pipeLines.length >= 3) {
+    const parsed = pipeLines
+      .map(l => l.split('|').map(c => c.trim()).filter(Boolean))
+      .filter(r => !r.every(c => /^[-=:]+$/.test(c)));
+    if (parsed.length >= 2) {
+      const header = parsed[0];
+      const rows = parsed.slice(1).map(r => {
+        const row = {};
+        header.forEach((h, i) => { row[h] = r[i] ?? ''; });
+        return row;
+      });
+      if (rows.length > 0) return rows;
+    }
+  }
+
+  // 2. Tab/multi-space aligned table (common in PDF exports)
+  const tabLines = lines.filter(l => /\t|  {2,}/.test(l));
+  if (tabLines.length >= 3) {
+    const split = tabLines.map(l => l.split(/\t|  {2,}/).map(c => c.trim()).filter(Boolean));
+    const colCount = split[0].length;
+    if (colCount >= 2 && split.slice(1).every(r => r.length >= colCount - 1)) {
+      const header = split[0];
+      const rows = split.slice(1).map(r => {
+        const row = {};
+        header.forEach((h, i) => { row[h] = r[i] ?? ''; });
+        return row;
+      });
+      if (rows.length > 0) return rows;
+    }
+  }
+
+  // 3. Repeated key:value blocks separated by blank lines (multi-record docs)
+  const rawBlocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  const kvRe = /^([A-Za-z][\w\s/().-]{1,40})\s*[:\-]\s*(.+)$/;
+  const blockRecords = rawBlocks.map(block => {
+    const rec = {};
+    block.split('\n').forEach(line => {
+      const m = line.trim().match(kvRe);
+      if (m) rec[m[1].trim().replace(/\s+/g, '_')] = m[2].trim();
+    });
+    extractLabeledFields(block.replace(/\n/g, ' '), rec);
+    return rec;
+  }).filter(r => Object.keys(r).length >= 2);
+
+  if (blockRecords.length >= 2) return blockRecords;
+
+  // 4. Single record — extract all key:value pairs from entire text
+  const record = {};
+  lines.forEach(line => {
+    const m = line.match(kvRe);
+    if (m) record[m[1].trim().replace(/\s+/g, '_')] = m[2].trim();
+  });
+
+  // Pull structured fields — label-aware first, then blind regex fallback
+  const fullText = text.replace(/\n/g, ' ');
+  extractLabeledFields(fullText, record);
+
+  if (Object.keys(record).length > 0) return [record];
+
+  // 5. Fallback — each non-empty line is a row
+  return lines.map(line => ({ text: line, source: fileName }));
+}
+
 async function parseFile(filePath, originalName, sheetName = null) {
   const ext = path.extname(originalName).toLowerCase();
 
@@ -281,6 +472,25 @@ async function parseFile(filePath, originalName, sheetName = null) {
   if (ext === '.sql') {
     const content = fs.readFileSync(filePath, 'utf8');
     return parseSql(content);
+  }
+
+  if (ext === '.pdf') {
+    const buf  = fs.readFileSync(filePath);
+    const data = await parsePdf(buf);
+    const text = data.text.trim();
+    if (text.length > 30) return textToRows(text, path.basename(originalName, '.pdf'));
+    const ocrText = await ocrPdf(filePath);
+    return textToRows(ocrText, path.basename(originalName, '.pdf'));
+  }
+
+  if (ext === '.docx') {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return textToRows(result.value, path.basename(originalName, '.docx'));
+  }
+
+  if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) {
+    const { data: { text } } = await Tesseract.recognize(filePath, 'eng', { logger: () => {} });
+    return textToRows(text, path.basename(originalName, ext));
   }
 
   throw new Error(`Unsupported file type: ${ext}`);
@@ -345,7 +555,7 @@ exports.uploadFile = async (req, res) => {
     const displayName = sheetName ? `${originalName} — ${sheetName}` : originalName;
     const scores = calculateScores(results);
     const analysis = await Analysis.create({
-      fileName: displayName, fileSize, rowCount: results.length, rawData: results, ...scores
+      fileName: displayName, fileSize, rowCount: results.length, rawData: results, userId: req.userId, ...scores
     });
     await detectAndSaveIssues(analysis.id, results);
     await generateFingerprint(analysis.id, displayName, results, filePath);
@@ -377,7 +587,7 @@ exports.uploadFromUrl = async (req, res) => {
     const scores = calculateScores(results);
     const fileName = `Google Sheet (${new Date().toLocaleDateString()})`;
     const analysis = await Analysis.create({
-      fileName, fileSize: 0, rowCount: results.length, rawData: results, ...scores
+      fileName, fileSize: 0, rowCount: results.length, rawData: results, userId: req.userId, ...scores
     });
     await detectAndSaveIssues(analysis.id, results);
     await generateFingerprint(analysis.id, fileName, results, null);
@@ -392,7 +602,8 @@ exports.uploadFromUrl = async (req, res) => {
 
 exports.getHistory = async (req, res) => {
   try {
-    const history = await Analysis.findAll({ order: [['createdAt', 'DESC']], limit: 20 });
+    const where = req.userId ? { userId: req.userId } : {};
+    const history = await Analysis.findAll({ where, order: [['createdAt', 'DESC']], limit: 20 });
     res.json(history.map(a => ({ ...a.toJSON(), scores: { completeness: a.completeness, uniqueness: a.uniqueness, validity: a.validity, consistency: a.consistency, overallScore: a.overallScore, problemRowPct: a.problemRowPct } })));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -401,10 +612,27 @@ exports.getHistory = async (req, res) => {
 
 exports.getAnalysisById = async (req, res) => {
   try {
-    const analysis = await Analysis.findByPk(req.params.id, { include: [{ model: DataIssue }] });
+    const where = req.userId ? { id: req.params.id, userId: req.userId } : { id: req.params.id };
+    const analysis = await Analysis.findOne({ where, include: [{ model: DataIssue }] });
     if (!analysis) return res.status(404).json({ error: 'Analysis not found' });
     const a = analysis.toJSON();
-    res.json({ ...a, scores: { completeness: a.completeness, uniqueness: a.uniqueness, validity: a.validity, consistency: a.consistency, overallScore: a.overallScore, problemRowPct: a.problemRowPct }, rawData: a.rawData || [], issues: a.DataIssues || [], problemRowPct: a.problemRowPct });
+    res.json({ ...a, scores: { completeness: a.completeness, uniqueness: a.uniqueness, validity: a.validity, consistency: a.consistency, overallScore: a.overallScore, problemRowPct: a.problemRowPct }, rawData: a.rawData || [], issues: a.DataIssues || [], problemRowPct: a.problemRowPct, verificationStatus: a.verificationStatus || {} });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.deleteAllAnalyses = async (req, res) => {
+  try {
+    const where = req.userId ? { userId: req.userId } : {};
+    const analyses = await Analysis.findAll({ where, attributes: ['id'] });
+    const ids = analyses.map(a => a.id);
+    if (ids.length > 0) {
+      await DataIssue.destroy({ where: { analysisId: ids } });
+      await Recommendation.destroy({ where: { analysisId: ids } });
+      await Analysis.destroy({ where });
+    }
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -413,7 +641,8 @@ exports.getAnalysisById = async (req, res) => {
 exports.deleteAnalysis = async (req, res) => {
   try {
     const { id } = req.params;
-    const analysis = await Analysis.findByPk(id);
+    const where = req.userId ? { id, userId: req.userId } : { id };
+    const analysis = await Analysis.findOne({ where });
     if (!analysis) return res.status(404).json({ error: 'Analysis not found' });
     await DataIssue.destroy({ where: { analysisId: id } });
     await Recommendation.destroy({ where: { analysisId: id } });
@@ -421,6 +650,20 @@ exports.deleteAnalysis = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Delete error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.saveVerificationStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verificationStatus } = req.body;
+    const where = req.userId ? { id, userId: req.userId } : { id };
+    const analysis = await Analysis.findOne({ where });
+    if (!analysis) return res.status(404).json({ error: 'Analysis not found' });
+    await analysis.update({ verificationStatus });
+    res.json({ success: true });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };

@@ -1,19 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, FileText, FileSpreadsheet, FileJson, Database, Link, ChevronRight, Table, CheckCircle } from 'lucide-react';
+import { Upload, X, FileText, FileSpreadsheet, FileJson, Database, Link, ChevronRight, Table, CheckCircle, BookOpen } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 import api from './api';
 
 const FILE_TYPES = [
-  { id: 'csv',    label: 'CSV',           ext: '.csv',         icon: FileText,        desc: 'Comma-separated values',       accept: '.csv',        hasSheets: false },
-  { id: 'tsv',    label: 'TSV',           ext: '.tsv',         icon: FileText,        desc: 'Tab-separated values',         accept: '.tsv',        hasSheets: false },
-  { id: 'excel',  label: 'Excel',         ext: '.xlsx / .xls', icon: FileSpreadsheet, desc: 'Microsoft Excel workbook',     accept: '.xlsx,.xls',  hasSheets: true  },
-  { id: 'ods',    label: 'ODS',           ext: '.ods',         icon: FileSpreadsheet, desc: 'LibreOffice / OpenDocument',   accept: '.ods',        hasSheets: true  },
-  { id: 'json',   label: 'JSON',          ext: '.json',        icon: FileJson,        desc: 'Array of records or wrapped',  accept: '.json',       hasSheets: false },
-  { id: 'ndjson', label: 'NDJSON',        ext: '.ndjson',      icon: FileJson,        desc: 'Newline-delimited JSON',       accept: '.ndjson',     hasSheets: false },
-  { id: 'xml',    label: 'XML',           ext: '.xml',         icon: FileText,        desc: 'Repeated element list',        accept: '.xml',        hasSheets: false },
-  { id: 'sql',    label: 'SQL',           ext: '.sql',         icon: Database,        desc: 'INSERT INTO statements',       accept: '.sql',        hasSheets: false },
-  { id: 'gsheet', label: 'Google Sheets', ext: 'URL',          icon: Link,            desc: 'Paste a public share link',    accept: null,          hasSheets: false },
+  { id: 'csv',    label: 'CSV',           ext: '.csv',         icon: FileText,        desc: 'Comma-separated values',                accept: '.csv',             hasSheets: false },
+  { id: 'tsv',    label: 'TSV',           ext: '.tsv',         icon: FileText,        desc: 'Tab-separated values',                  accept: '.tsv',             hasSheets: false },
+  { id: 'excel',  label: 'Excel',         ext: '.xlsx / .xls', icon: FileSpreadsheet, desc: 'Microsoft Excel workbook',              accept: '.xlsx,.xls',       hasSheets: true  },
+  { id: 'ods',    label: 'ODS',           ext: '.ods',         icon: FileSpreadsheet, desc: 'LibreOffice / OpenDocument',            accept: '.ods',             hasSheets: true  },
+  { id: 'json',   label: 'JSON',          ext: '.json',        icon: FileJson,        desc: 'Array of records or wrapped',           accept: '.json',            hasSheets: false },
+  { id: 'ndjson', label: 'NDJSON',        ext: '.ndjson',      icon: FileJson,        desc: 'Newline-delimited JSON',                accept: '.ndjson',          hasSheets: false },
+  { id: 'xml',    label: 'XML',           ext: '.xml',         icon: FileText,        desc: 'Repeated element list',                 accept: '.xml',             hasSheets: false },
+  { id: 'sql',    label: 'SQL',           ext: '.sql',         icon: Database,        desc: 'INSERT INTO statements',                accept: '.sql',             hasSheets: false },
+  { id: 'pdf',    label: 'PDF',           ext: '.pdf',         icon: BookOpen,        desc: 'Extracts fields, tables & Aadhaar/PAN', accept: '.pdf',             hasSheets: false },
+  { id: 'docx',   label: 'Word (.docx)',  ext: '.docx',        icon: BookOpen,        desc: 'Extracts fields & tables from Word',    accept: '.docx',            hasSheets: false },
+  { id: 'gsheet', label: 'Google Sheets', ext: 'URL',          icon: Link,            desc: 'Paste a public share link',             accept: null,               hasSheets: false },
 ];
 
 // ── Sheet picker modal ────────────────────────────────────────────────────────

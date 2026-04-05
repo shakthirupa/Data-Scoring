@@ -50,9 +50,16 @@ const api = {
     const res = await fetch(`${BASE_URL}/analysis/insights`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ scores }) });
     return res.json();
   },
-
+  deleteAllAnalyses: async () => {
+    const res = await fetch(`${BASE_URL}/analysis/all`, { method: 'DELETE', headers: authHeaders() });
+    return res.json();
+  },
   deleteAnalysis: async (id) => {
     const res = await fetch(`${BASE_URL}/analysis/${id}`, { method: 'DELETE', headers: authHeaders() });
+    return res.json();
+  },
+  saveVerificationStatus: async (id, verificationStatus) => {
+    const res = await fetch(`${BASE_URL}/analysis/${id}/verification`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ verificationStatus }) });
     return res.json();
   },
 
@@ -260,6 +267,115 @@ const api = {
     return res.json();
   },
 
+  // Google Drive
+  getDriveServiceEmail: async () => {
+    const res = await fetch(`${BASE_URL}/drive/service-email`, { headers: authHeaders() });
+    return res.json();
+  },
+  browseDrive: async (folderId = 'root') => {
+    const res = await fetch(`${BASE_URL}/drive/browse`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId }) });
+    return res.json();
+  },
+  importDriveFile: async (driveUrl) => {
+    const res = await fetch(`${BASE_URL}/drive/import`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ driveUrl }) });
+    return res.json();
+  },
+  importDriveFileById: async (fileId) => {
+    const res = await fetch(`${BASE_URL}/drive/import`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ fileId }) });
+    return res.json();
+  },
+  importDriveFolder: async (folderId) => {
+    const res = await fetch(`${BASE_URL}/drive/import-folder`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId }) });
+    return res.json();
+  },
+  getDriveFolderJob: async (jobId) => {
+    const res = await fetch(`${BASE_URL}/drive/job/${jobId}`, { headers: authHeaders() });
+    return res.json();
+  },
+  saveDriveConnection: async (folderId, folderName) => {
+    const res = await fetch(`${BASE_URL}/drive/connect`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId, folderName }) });
+    return res.json();
+  },
+  getDriveConnections: async () => {
+    const res = await fetch(`${BASE_URL}/drive/connections`, { headers: authHeaders() });
+    return res.json();
+  },
+
+  // Students
+  getStudents: async (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    const res = await fetch(`${BASE_URL}/students?${q}`, { headers: authHeaders() });
+    return res.json();
+  },
+  getStudentStats: async () => {
+    const res = await fetch(`${BASE_URL}/students/stats`, { headers: authHeaders() });
+    return res.json();
+  },
+  createStudent: async (data) => {
+    const res = await fetch(`${BASE_URL}/students`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) });
+    return res.json();
+  },
+  updateStudent: async (id, data) => {
+    const res = await fetch(`${BASE_URL}/students/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) });
+    return res.json();
+  },
+  deleteStudent: async (id) => {
+    const res = await fetch(`${BASE_URL}/students/${id}`, { method: 'DELETE', headers: authHeaders() });
+    return res.json();
+  },
+  extractStudents: async (analysisId) => {
+    const res = await fetch(`${BASE_URL}/students/extract/${analysisId}`, { method: 'POST', headers: authHeaders() });
+    return res.json();
+  },
+  extractStudentsBulk: async (analysisIds) => {
+    const res = await fetch(`${BASE_URL}/students/extract-bulk`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ analysisIds }) });
+    return res.json();
+  },
+  verifyStudentsAgainstDrive: async (folderId) => {
+    const res = await fetch(`${BASE_URL}/students/verify-against-drive`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId }) });
+    return res.json();
+  },
+  verifyRow: async (row, folderId, signal) => {
+    const res = await fetch(`${BASE_URL}/students/verify-row`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ row, folderId }), signal });
+    return res.json();
+  },
+  getFolderStructure: async (folderId) => {
+    const res = await fetch(`${BASE_URL}/students/folder-structure?folderId=${encodeURIComponent(folderId)}`, { headers: authHeaders() });
+    return res.json();
+  },
+  sendSms: async (phone, message) => {
+    const res = await fetch(`${BASE_URL}/students/send-sms`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, message }) });
+    return res.json();
+  },
+
+  // Notifications
+  sendNotifications: async (analysisId) => {
+    const res = await fetch(`${BASE_URL}/notifications/send`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ analysisId }) });
+    return res.json();
+  },
+  getNotificationLogs: async (analysisId) => {
+    const res = await fetch(`${BASE_URL}/notifications/${analysisId}`, { headers: authHeaders() });
+    return res.json();
+  },
+  sendManualSms: async (phones) => {
+    const res = await fetch(`${BASE_URL}/notifications/send-manual`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phones }) });
+    return res.json();
+  },
+  sendEmailAlerts: async (emails, analysisId, rowIndices) => {
+    const res = await fetch(`${BASE_URL}/notifications/send-email-alerts`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ emails, analysisId, rowIndices }) });
+    return res.json();
+  },
+  sendWhatsAppAlerts: async (phones) => {
+    const res = await fetch(`${BASE_URL}/notifications/send-whatsapp`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phones }) });
+    return res.json();
+  },
+
+  // Sheets Sync
+  syncFromSheet: async (analysisId) => {
+    const res = await fetch(`${BASE_URL}/sheets/sync/${analysisId}`, { method: 'POST', headers: authHeaders() });
+    return res.json();
+  },
+
   // Comparison
   compareAnalyses: async (analysisIds) => {
     const res = await fetch(`${BASE_URL}/comparison/compare`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ analysisIds }) });
@@ -269,7 +385,7 @@ const api = {
     const query = new URLSearchParams(params).toString();
     const res = await fetch(`${BASE_URL}/comparison/search?${query}`, { headers: authHeaders() });
     return res.json();
-  }
+  },
 };
 
 export default api;

@@ -6,6 +6,7 @@ module.exports = (req, res, next) => {
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const decoded = jwt.verify(auth.split(' ')[1], JWT_SECRET);
+    req.user = { id: decoded.userId };
     req.userId = decoded.userId;
     next();
   } catch {

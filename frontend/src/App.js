@@ -7,7 +7,6 @@ import Dashboard from './pages/Dashboard';
 import AnalysisHistory from './pages/AnalysisHistory';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
-import QualityScore from './pages/QualityScore';
 import Issues from './pages/Issues';
 import Reports from './pages/Reports';
 import Comparison from './pages/Comparison';
@@ -16,8 +15,8 @@ import Help from './pages/Help';
 import ForensicsPage from './pages/Forensics';
 import PredictivePage from './pages/Predictive';
 import FingerprintPage from './pages/FingerprintPage';
-import ConsistencyPage from './pages/ConsistencyPage';
 import DigiLockerPage from './pages/DigiLockerPage';
+import StudentsPage from './pages/StudentsPage';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -42,7 +41,6 @@ function ProtectedLayout() {
             <Route path="/history"      element={<AnalysisHistory />} />
             <Route path="/profile"      element={<Profile />} />
             <Route path="/settings"     element={<Settings />} />
-            <Route path="/quality-score" element={<QualityScore />} />
             <Route path="/issues"       element={<Issues />} />
             <Route path="/reports"      element={<Reports />} />
             <Route path="/comparison"   element={<Comparison />} />
@@ -51,8 +49,8 @@ function ProtectedLayout() {
             <Route path="/forensics"     element={<ForensicsPage />} />
             <Route path="/predictive"    element={<PredictivePage />} />
             <Route path="/fingerprint"   element={<FingerprintPage />} />
-            <Route path="/consistency"   element={<ConsistencyPage />} />
             <Route path="/digilocker"    element={<DigiLockerPage />} />
+            <Route path="/students"      element={<StudentsPage />} />
             <Route path="*"             element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

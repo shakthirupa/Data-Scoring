@@ -247,16 +247,49 @@ function PredictiveIntegrityIndex({ analysisId }) {
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Future Risk', value: prediction.futureRiskScore, suffix: '', color: riskCfg.color, sub: prediction.riskLevel },
-          { label: 'Predicted Score', value: prediction.predictedScore?.toFixed(1), suffix: '%', color: '#6366f1', sub: `in ${prediction.forecastSeries?.length || 0} steps` },
-          { label: 'Confidence', value: prediction.confidenceScore, suffix: '%', color: '#10b981', sub: `R² ${prediction.r2}` },
-          { label: 'Volatility', value: prediction.volatility?.toFixed(1), suffix: 'σ', color: '#f59e0b', sub: `${prediction.anomalyCount} anomalies` },
+          {
+            label: 'Future Risk',
+            value: prediction.futureRiskScore,
+            suffix: '',
+            color: riskCfg.color,
+            sub: prediction.riskLevel,
+            desc: 'A score from 0–100 indicating how likely your data quality will degrade. Lower is better. Based on trend slope, volatility, and anomaly rate.'
+          },
+          {
+            label: 'Predicted Score',
+            value: prediction.predictedScore?.toFixed(1),
+            suffix: '%',
+            color: '#6366f1',
+            sub: `in ${prediction.forecastSeries?.length || 0} steps`,
+            desc: 'The forecasted overall data quality score after the next few uploads, based on your historical trend.'
+          },
+          {
+            label: 'Confidence',
+            value: prediction.confidenceScore,
+            suffix: '%',
+            color: '#10b981',
+            sub: `R² ${prediction.r2}`,
+            desc: 'How reliable the prediction is. R² (0–1) measures how well the trend line fits your data. Higher R² = more accurate forecast.'
+          },
+          {
+            label: 'Volatility',
+            value: prediction.volatility?.toFixed(1),
+            suffix: 'σ',
+            color: '#f59e0b',
+            sub: `${prediction.anomalyCount} anomalies`,
+            desc: 'Standard deviation (σ) of your quality scores. High volatility means inconsistent data quality. Anomalies are scores that deviate significantly from the trend.'
+          },
         ].map((kpi, i) => (
           <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.07 }} className="p-4" style={card}>
+            transition={{ delay: i * 0.07 }} className="p-4 relative group" style={card}>
             <p className="text-xs mb-1" style={{ color: labelColor }}>{kpi.label}</p>
             <p className="text-2xl font-bold" style={{ color: kpi.color }}>{kpi.value}{kpi.suffix}</p>
             <p className="text-xs mt-0.5" style={{ color: labelColor }}>{kpi.sub}</p>
+            {/* Tooltip on hover */}
+            <div className="absolute bottom-full left-0 mb-2 z-20 hidden group-hover:block w-56 p-3 rounded-xl text-xs shadow-xl"
+              style={{ background: dark ? '#1f2937' : '#fff', border: `1px solid ${dark ? '#374151' : '#e5e7eb'}`, color: dark ? '#d1d5db' : '#374151' }}>
+              {kpi.desc}
+            </div>
           </motion.div>
         ))}
       </div>

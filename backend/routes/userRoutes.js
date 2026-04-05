@@ -4,6 +4,7 @@ const userController = require('../controllers/userController');
 const auth = require('../middleware/auth');
 
 router.post('/signup', userController.signup);
+router.post('/verify-otp', userController.verifyOtp);
 router.post('/login', userController.login);
 router.get('/profile', auth, userController.getProfile);
 router.put('/profile', auth, userController.updateProfile);

@@ -1,17 +1,45 @@
 const User = require('../models/User');
+const OtpVerification = require('../models/OtpVerification');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { generateOtp, sendOtpEmail } = require('../utils/mailer');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dataquality_secret_key';
 
 exports.signup = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, organisation } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
     const existing = await User.findOne({ where: { email } });
     if (existing) return res.status(400).json({ error: 'Email already registered' });
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed });
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await OtpVerification.destroy({ where: { email } });
+    // Hash password and send OTP in parallel
+    const [hashed] = await Promise.all([
+      bcrypt.hash(password, 10),
+      sendOtpEmail(email, otp, 'signup'),
+    ]);
+    await OtpVerification.create({ email, otp, name, password: hashed, organisation: organisation || '', expiresAt });
+    res.json({ otpSent: true, email });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
+    const record = await OtpVerification.findOne({ where: { email } });
+    if (!record) return res.status(400).json({ error: 'OTP not found. Please sign up again.' });
+    if (new Date() > new Date(record.expiresAt)) {
+      await record.destroy();
+      return res.status(400).json({ error: 'OTP has expired. Please sign up again.' });
+    }
+    if (record.otp !== otp) return res.status(400).json({ error: 'Invalid OTP. Please try again.' });
+    const user = await User.create({ name: record.name, email: record.email, password: record.password, organization: record.organisation });
+    await record.destroy();
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: user.name, email: user.email });
   } catch (error) {

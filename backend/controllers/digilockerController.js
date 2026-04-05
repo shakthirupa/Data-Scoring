@@ -119,12 +119,19 @@ exports.verifyMock = async (req, res) => {
 
     const masked = docType === 'aadhaar' ? maskAadhaar(v) : maskPan(v);
 
+    // Validate orgId exists before using it as FK, fall back to null
+    let safeOrgId = null;
+    if (orgId) {
+      const org = await Organization.findByPk(orgId);
+      if (org) safeOrgId = org.id;
+    }
+
     if (!record) {
-      await VerificationLog.create({ orgId: orgId || null, docType, maskedValue: masked, status: 'Not Verified', source: 'Mock DigiLocker', confidenceScore: 10, authenticityScore: 30, mode: 'mock' });
+      await VerificationLog.create({ orgId: safeOrgId, docType, maskedValue: masked, status: 'Not Verified', source: 'Mock DigiLocker', confidenceScore: 10, authenticityScore: 30, mode: 'mock' });
       return res.json({ status: 'Not Verified', source: 'Mock DigiLocker', maskedValue: masked, confidenceScore: 10, authenticityScore: 30 });
     }
 
-    await VerificationLog.create({ orgId: orgId || null, docType, maskedValue: masked, status: 'Verified', source: 'Mock DigiLocker', confidenceScore: 85, authenticityScore: 100, mode: 'mock' });
+    await VerificationLog.create({ orgId: safeOrgId, docType, maskedValue: masked, status: 'Verified', source: 'Mock DigiLocker', confidenceScore: 85, authenticityScore: 100, mode: 'mock' });
 
     res.json({
       status: 'Verified',

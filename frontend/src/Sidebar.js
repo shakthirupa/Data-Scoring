@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, History, FileText, Star, AlertTriangle, Bell, User, Settings, HelpCircle, Zap, Fingerprint, Activity, ShieldCheck, Search, Lock } from 'lucide-react';
+import { LayoutDashboard, History, FileText, AlertTriangle, Bell, User, Settings, HelpCircle, Zap, Fingerprint, Activity, Search, Lock } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 
 const menuSections = [
@@ -15,7 +15,6 @@ const menuSections = [
   {
     label: 'Insights',
     items: [
-      { name: 'Quality Score',    icon: Star,            path: '/quality-score' },
       { name: 'Issues',           icon: AlertTriangle,   path: '/issues' },
       { name: 'Notifications',    icon: Bell,            path: '/notifications' },
     ]
@@ -26,8 +25,7 @@ const menuSections = [
       { name: 'Data Forensics',   icon: Search,          path: '/forensics',    badge: 'NEW' },
       { name: 'Predictive Index', icon: Activity,        path: '/predictive',   badge: 'NEW' },
       { name: 'Fingerprinting',   icon: Fingerprint,     path: '/fingerprint',  badge: 'NEW' },
-      { name: 'Consistency',      icon: ShieldCheck,     path: '/consistency',  badge: 'NEW' },
-      { name: 'DigiLocker',       icon: Lock,            path: '/digilocker',   badge: 'NEW' },
+      { name: 'Integrations',    icon: Lock,            path: '/digilocker',   badge: 'NEW' },
     ]
   },
   {

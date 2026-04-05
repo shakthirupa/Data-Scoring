@@ -53,9 +53,9 @@ exports.validate = async (req, res) => {
       flaggedCount: result.flaggedCount,
       consistencyScore: result.consistencyScore,
       ruleSummary: result.ruleSummary,
-      // Store only first 500 flagged rows to keep DB payload sane
       flaggedRows: result.flaggedRows.slice(0, 500),
     });
+    await Analysis.update({ consistency: result.consistencyScore }, { where: { id: analysis.id } });
 
     res.json({
       analysisId: analysis.id,

@@ -18,7 +18,11 @@ function Comparison() {
 
   useEffect(() => {
     api.getHistory()
-      .then(data => setAnalyses(data.length >= 2 ? data : MOCK))
+      .then(data => setAnalyses(
+        data.length >= 2
+          ? data.map(a => ({ ...a, _id: a._id || a.id }))
+          : MOCK
+      ))
       .catch(() => setAnalyses(MOCK));
   }, []);
 
@@ -58,11 +62,16 @@ function Comparison() {
           className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Select 2 Files to Compare</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {analyses.slice(0, 8).map((a, idx) => (
+            {analyses.slice(0, 16).map((a, idx) => (
               <motion.button key={a._id} whileTap={{ scale: 0.97 }}
                 onClick={() => toggleSelect(idx)}
                 className={`p-4 rounded-xl border-2 text-left transition-all ${selected.includes(idx) ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'}`}>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{a.fileName}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  {a.fileName.match(/\.(pdf|docx?|xlsx?|xls|ods|png|jpe?g|webp|bmp|tiff?)$/i)
+                    ? a.fileName.match(/\.(pdf|docx?|xlsx?|xls|ods|png|jpe?g|webp|bmp|tiff?)$/i)[0].toUpperCase().replace('.', '')
+                    : 'CSV'}
+                </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{new Date(a.createdAt).toLocaleDateString()}</p>
                 <p className={`text-lg font-bold mt-2 ${getColor(a.scores.overallScore)}`}>{a.scores.overallScore}%</p>
               </motion.button>

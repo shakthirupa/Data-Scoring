@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { DigiLockerIntegration, DigiLockerMock, VerificationLog } = require('../models/DigiLockerModels');
+const { DigiLockerIntegration, DigiLockerMock, VerificationLog, Organization } = require('../models/DigiLockerModels');
 const { decrypt, maskAadhaar, maskPan, detectDocType, confidenceScore, authenticityScore } = require('./digilockerCrypto');
 
 // ── Mock verification ─────────────────────────────────────────────────────────
@@ -130,8 +130,15 @@ async function verifyDocument(docType, value, orgId, analysisId = null) {
   const auth = authenticityScore(result.status);
 
   // Persist log (never log raw value)
+  // Validate orgId exists before using as FK
+  let safeOrgId = null;
+  if (orgId) {
+    const org = await Organization.findByPk(orgId).catch(() => null);
+    if (org) safeOrgId = orgId;
+  }
+
   await VerificationLog.create({
-    orgId: null,  // avoid FK violation when org doesn't exist
+    orgId: safeOrgId,
     analysisId: analysisId || null,
     docType,
     maskedValue,

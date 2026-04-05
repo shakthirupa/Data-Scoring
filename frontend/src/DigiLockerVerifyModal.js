@@ -52,15 +52,13 @@ export default function DigiLockerVerifyModal({ rows, onClose }) {
     setLoading(l => ({ ...l, [key]: true }));
     try {
       const res = await api.verifyDocument(entry.raw, 1);
-      // If live URL was unreachable, backend returns source 'DigiLocker (Simulated)'
-      // Treat that as unverified so the user knows the live connection failed
       if (res.source === 'DigiLocker (Simulated)') {
-        setResults(r => ({ ...r, [key]: { ...res, status: 'Not Verified', errorMsg: 'Live API unreachable — check your API URL in Integration Settings' } }));
+        setResults(r => ({ ...r, [key]: { ...res, status: 'Not Verified', errorMsg: 'Live API unreachable — check Integration Settings' } }));
       } else {
         setResults(r => ({ ...r, [key]: res }));
       }
     } catch (e) {
-      setResults(r => ({ ...r, [key]: { status: 'Not Verified', errorMsg: 'Connection failed — check API URL in settings' } }));
+      setResults(r => ({ ...r, [key]: { status: 'Not Verified', errorMsg: 'Connection failed — check Integration Settings' } }));
     }
     setLoading(l => ({ ...l, [key]: false }));
   };
