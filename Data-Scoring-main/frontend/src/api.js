@@ -273,6 +273,14 @@ const api = {
     const res = await fetch(`${BASE_URL}/notifications/send-manual`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phones }) });
     return res.json();
   },
+  sendEmailAlerts: async (emails) => {
+    const res = await fetch(`${BASE_URL}/notifications/send-email-alerts`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ emails }) });
+    return res.json();
+  },
+  syncFromSheet: async (analysisId) => {
+    const res = await fetch(`${BASE_URL}/sheets/sync/${analysisId}`, { method: 'POST', headers: authHeaders() });
+    return res.json();
+  },
 
   // Comparison
   compareAnalyses: async (analysisIds) => {

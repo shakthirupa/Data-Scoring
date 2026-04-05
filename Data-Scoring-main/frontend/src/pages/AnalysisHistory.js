@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, Eye, AlertTriangle, X, FileText, ShieldCheck, Bell, CheckCircle, XCircle } from 'lucide-react';
+import { Trash2, Eye, AlertTriangle, X, FileText, ShieldCheck, Bell, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import api from '../api';
 import DigiLockerVerifyModal, { detectSensitiveCols } from '../DigiLockerVerifyModal';
 
@@ -26,6 +26,11 @@ function AnalysisHistory() {
   const [smsLoading, setSmsLoading] = useState(false);
   const [smsResult, setSmsResult] = useState(null);
   const [smsError, setSmsError] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailResult, setEmailResult] = useState(null);
+  const [emailError, setEmailError] = useState('');
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const handleView = async (id) => {
     setViewLoading(true);
@@ -33,6 +38,9 @@ function AnalysisHistory() {
     setShowDigiLocker(false);
     setSmsResult(null);
     setSmsError('');
+    setEmailResult(null);
+    setEmailError('');
+    setSyncResult(null);
     setRowVerifyStatus({});
     const res = await api.getAnalysisById(id);
     setViewData(res);
@@ -111,6 +119,66 @@ function AnalysisHistory() {
     }
   };
 
+  const getEmail = (row) => {
+    const EMAIL_KEYS = ['email', 'email_address', 'emailaddress', 'mail'];
+    const key = Object.keys(row).find(k => EMAIL_KEYS.includes(k.toLowerCase().replace(/\s/g, '')));
+    if (!key) return null;
+    const addr = String(row[key] ?? '').trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr) ? addr : null;
+  };
+
+  const handleSendEmailAlerts = async () => {
+    if (!viewData) return;
+    const rows = viewData.rawData || [];
+    const notVerifiedIndices = Object.entries(rowVerifyStatus)
+      .filter(([, v]) => v === 'not_verified')
+      .map(([k]) => Number(k));
+
+    if (notVerifiedIndices.length === 0) {
+      setEmailError('Mark at least one row as "Not Verified" before sending emails.');
+      return;
+    }
+
+    const emails = notVerifiedIndices.map(i => getEmail(rows[i])).filter(Boolean);
+
+    if (emails.length === 0) {
+      const sample = rows[notVerifiedIndices[0]];
+      setEmailError(`No valid email addresses found. Available columns: ${Object.keys(sample || {}).join(', ')}`);
+      return;
+    }
+
+    setEmailLoading(true);
+    setEmailError('');
+    setEmailResult(null);
+    try {
+      const res = await api.sendEmailAlerts(emails);
+      if (res.error) throw new Error(res.error);
+      setEmailResult({ total: notVerifiedIndices.length, emailsSent: res.emailsSent, emails, errors: res.errors || [] });
+    } catch (err) {
+      setEmailError(err.message);
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const handleSyncFromSheet = async () => {
+    if (!viewData) return;
+    setSyncLoading(true);
+    setSyncResult(null);
+    try {
+      const res = await api.syncFromSheet(viewData.id);
+      if (res.error) throw new Error(res.error);
+      setSyncResult(res);
+      // Reload the modal data so updated rows are visible immediately
+      const refreshed = await api.getAnalysisById(viewData.id);
+      setViewData(refreshed);
+    } catch (err) {
+      setSyncResult({ error: err.message });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   const handleDelete = async () => {
     setDeleting(true);
     const res = await api.deleteAnalysis(confirmId);
@@ -167,7 +235,7 @@ function AnalysisHistory() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
-            onClick={() => { setViewData(null); setViewPage(0); setShowDigiLocker(false); setSmsResult(null); setSmsError(''); }}>
+            onClick={() => { setViewData(null); setViewPage(0); setShowDigiLocker(false); setSmsResult(null); setSmsError(''); setEmailResult(null); setEmailError(''); }}>
             <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
               onClick={e => e.stopPropagation()}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
@@ -228,7 +296,22 @@ function AnalysisHistory() {
                           style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 3px 10px rgba(245,158,11,0.3)' }}>
                           <Bell size={11} />{smsLoading ? 'Sending...' : 'Send SMS Alerts'}
                         </button>
-                        <button onClick={() => { setViewData(null); setViewPage(0); setShowDigiLocker(false); setSmsResult(null); setSmsError(''); }}
+                        <button
+                          onClick={handleSendEmailAlerts}
+                          disabled={emailLoading}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white disabled:opacity-60 flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', boxShadow: '0 3px 10px rgba(99,102,241,0.3)' }}>
+                          <Bell size={11} />{emailLoading ? 'Sending...' : 'Send Email Alerts'}
+                        </button>
+                        <button
+                          onClick={handleSyncFromSheet}
+                          disabled={syncLoading}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white disabled:opacity-60 flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 3px 10px rgba(16,185,129,0.3)' }}>
+                          <RefreshCw size={11} className={syncLoading ? 'animate-spin' : ''} />
+                          {syncLoading ? 'Syncing...' : 'Sync from Form'}
+                        </button>
+                        <button onClick={() => { setViewData(null); setViewPage(0); setShowDigiLocker(false); setSmsResult(null); setSmsError(''); setEmailResult(null); setEmailError(''); }}
                           className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                           <X size={16} className="text-gray-500" />
                         </button>
@@ -279,6 +362,70 @@ function AnalysisHistory() {
                                 </div>
                               </div>
                             )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Email Result Banner */}
+                    {(emailResult || emailError) && (
+                      <div className="mx-4 mt-2 flex-shrink-0">
+                        {emailError && (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs text-red-600"
+                            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            <XCircle size={13} /> {emailError}
+                          </div>
+                        )}
+                        {emailResult && (
+                          <div className="px-4 py-3 rounded-xl" style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                            <div className="flex items-center gap-2 mb-2">
+                              <CheckCircle size={13} style={{ color: '#6366f1' }} />
+                              <span className="text-xs font-bold" style={{ color: '#4f46e5' }}>Email Alerts Sent</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 mb-3">
+                              {[
+                                { label: 'Not Verified', val: emailResult.total },
+                                { label: 'Emails Sent', val: emailResult.emailsSent },
+                                { label: 'Failed', val: emailResult.errors?.length ?? 0 },
+                              ].map(({ label, val }) => (
+                                <div key={label} className="text-center">
+                                  <p className="text-lg font-bold text-gray-800 dark:text-white">{val}</p>
+                                  <p className="text-xs text-gray-500">{label}</p>
+                                </div>
+                              ))}
+                            </div>
+                            {emailResult.emails?.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-1">Emails notified:</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {emailResult.emails.map(e => (
+                                    <span key={e} className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: 'rgba(99,102,241,0.1)', color: '#4f46e5' }}>
+                                      ✉️ {e}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sync Result Banner */}
+                    {syncResult && (
+                      <div className="mx-4 mt-2 flex-shrink-0">
+                        {syncResult.error ? (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs text-red-600"
+                            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            <XCircle size={13} /> {syncResult.error}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                            style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                            <CheckCircle size={13} style={{ color: '#10b981' }} />
+                            <span className="text-xs font-bold" style={{ color: '#059669' }}>
+                              Sync complete — {syncResult.updated} row{syncResult.updated !== 1 ? 's' : ''} updated from Google Sheet
+                            </span>
                           </div>
                         )}
                       </div>

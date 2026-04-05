@@ -2,6 +2,7 @@ const Analysis = require('../models/Analysis');
 const NotificationLog = require('../models/NotificationLog');
 const { validateRecord } = require('../utils/recordValidator');
 const { sendSMS, SMS_MESSAGE } = require('../utils/smsService');
+const { sendEmail } = require('../utils/mailer');
 const { Op } = require('sequelize');
 
 const SMS_DELAY_MS = 1000; // 1 second between SMS to avoid rate limits
@@ -154,4 +155,41 @@ exports.sendManualSms = async (req, res) => {
   }
 
   res.json({ success: true, total: phones.length, smsSent, errors });
+};
+
+/**
+ * POST /api/notifications/send-email-alerts
+ * Body: { emails: ["user1@gmail.com", ...] }
+ * Sends "data not verified" email to each address.
+ */
+exports.sendEmailAlerts = async (req, res) => {
+  const { emails } = req.body;
+  if (!Array.isArray(emails) || emails.length === 0)
+    return res.status(400).json({ error: 'emails array is required' });
+
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const SUBJECT = 'Data Verification Required';
+  const MESSAGE = 'Your details are not verified. Please update your information.';
+
+  let emailsSent = 0;
+  const errors = [];
+
+  for (const email of emails) {
+    const addr = String(email).trim();
+    if (!EMAIL_REGEX.test(addr)) {
+      errors.push({ email: addr, error: 'Invalid email address' });
+      continue;
+    }
+    try {
+      await sendEmail(addr, SUBJECT, MESSAGE);
+      emailsSent++;
+      console.log(`[EMAIL] Sent to ${addr}`);
+      await delay(1000);
+    } catch (err) {
+      errors.push({ email: addr, error: err.message });
+      console.error(`[EMAIL] Failed for ${addr}: ${err.message}`);
+    }
+  }
+
+  res.json({ success: true, total: emails.length, emailsSent, errors });
 };

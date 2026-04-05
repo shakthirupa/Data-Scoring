@@ -30,6 +30,7 @@ const integrityRoutes     = require('./routes/integrityRoutes');
 const forensicsRoutes     = require('./routes/forensicsRoutes');
 const digilockerRoutes    = require('./routes/digilockerRoutes');
 const notificationRoutes  = require('./routes/notificationRoutes');
+const sheetsRoutes        = require('./routes/sheetsRoutes');
 const { loadCustomRules } = require('./controllers/consistencyController');
 const { seedMockData }    = require('./utils/digilockerSeed');
 
@@ -52,6 +53,7 @@ app.use('/api/predict-integrity', integrityRoutes);
 app.use('/api/forensics',         forensicsRoutes);
 app.use('/api',                   digilockerRoutes);
 app.use('/api/notifications',     notificationRoutes);
+app.use('/api/sheets',            sheetsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'OK', message: 'Server is running' }));
 
