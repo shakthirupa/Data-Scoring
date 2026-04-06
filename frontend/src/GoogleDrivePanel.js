@@ -148,10 +148,10 @@ export default function GoogleDrivePanel({ onImportComplete, initialFolderId, in
           setShowConnected(true);
         } else {
           // Save non-root folder as a connection
-          api.saveDriveConnection(current.id, current.name)
+          api.saveDriveConnection(current.id, current.name, `https://drive.google.com/drive/folders/${current.id}`)
             .then(d => d.success && setConnections(prev => {
               const filtered = prev.filter(c => c.folderId !== current.id);
-              return [{ folderId: current.id, folderName: current.name, connectedAt: new Date().toISOString() }, ...filtered].slice(0, 20);
+              return [{ folderId: current.id, folderName: current.name, folderUrl: `https://drive.google.com/drive/folders/${current.id}`, connectedAt: new Date().toISOString() }, ...filtered].slice(0, 20);
             }))
             .catch(() => {});
         }
@@ -366,6 +366,13 @@ export default function GoogleDrivePanel({ onImportComplete, initialFolderId, in
                           <Clock size={10} className="inline mr-1" />
                           {new Date(c.connectedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                           {' · '}{new Date(c.connectedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                          {c.folderUrl && (
+                            <a href={c.folderUrl} target="_blank" rel="noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="ml-2 underline" style={{ color: '#4285f4' }}>
+                              Open in Drive
+                            </a>
+                          )}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">

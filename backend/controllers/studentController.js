@@ -2,6 +2,8 @@ const Student = require('../models/Student');
 const Analysis = require('../models/Analysis');
 const { Op } = require('sequelize');
 const { ocrPdf, ocrImage } = require('../utils/pdfOcr');
+const { PDFParse: _PDFParse } = require('pdf-parse');
+const parsePdf = (buf) => new _PDFParse().parse(buf);
 
 // Persistent cross-request cache: fileId -> extracted text
 // Survives for the lifetime of the Node process so re-runs are instant
@@ -224,7 +226,7 @@ exports.verifyAgainstDriveStream = async (req, res) => {
   const { google } = require('googleapis');
   const fs        = require('fs');
   const path      = require('path');
-  const pdfParse  = require('pdf-parse');
+
   const mammoth   = require('mammoth');
 
   function getAuth() {
@@ -316,7 +318,7 @@ exports.verifyAgainstDriveStream = async (req, res) => {
         if (!downloaded) return '';
         let text = '';
         if (ext === '.pdf') {
-          const d = await pdfParse(fs.readFileSync(tmp));
+          const d = await parsePdf(fs.readFileSync(tmp));
           text = d.text.trim();
           if (text.length <= 30) text = await ocrPdf(tmp);
         } else if (ext === '.docx') {
@@ -357,19 +359,39 @@ exports.verifyAgainstDriveStream = async (req, res) => {
     return files;
   }
 
-  function matchScore(folderName, student) {
+  function matchScore(folderName, student, folderCombinedText = '') {
     const fn = folderName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     if (student.rollNumber) {
       const roll = student.rollNumber.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (fn === roll) return 100;
       if (fn.includes(roll) || roll.includes(fn)) return 100;
-      if (roll.length >= 6 && fn.includes(roll.slice(-6))) return 80;
+      // partial suffix match (last 6+ chars of roll number)
+      if (roll.length >= 6 && fn.includes(roll.slice(-6))) return 90;
+      // partial prefix match
+      if (roll.length >= 6 && fn.includes(roll.slice(0, 6))) return 85;
+      // any 5+ char substring of roll found in folder name
+      for (let len = Math.min(roll.length, 8); len >= 5; len--) {
+        for (let start = 0; start <= roll.length - len; start++) {
+          if (fn.includes(roll.slice(start, start + len))) return 70;
+        }
+      }
     }
+
     if (student.name) {
       const words = student.name.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       const matched = words.filter(w => fn.includes(w)).length;
-      if (matched === words.length && words.length > 0) return 60;
+      if (words.length > 0 && matched === words.length) return 60;
+      if (matched >= Math.ceil(words.length * 0.6) && matched > 0) return 45;
       if (matched > 0) return matched * 15;
     }
+
+    // Last resort: Aadhaar or PAN found inside the folder's documents
+    if (folderCombinedText) {
+      if (student.aadhaar && aadhaarMatch(folderCombinedText, student.aadhaar)) return 55;
+      if (student.pan && panMatch(folderCombinedText, student.pan)) return 50;
+    }
+
     return 0;
   }
 
@@ -528,7 +550,13 @@ exports.verifyAgainstDriveStream = async (req, res) => {
       // Match against ALL folders (including nested), map back to top-level for file lookup
       let bestFolderId = null, bestFolderName = null, bestScore = 0;
       for (const [fid, fname] of allFolderNames.entries()) {
-        const sc = matchScore(fname, s);
+        // resolve to top-level folder to get combined text for content-based matching
+        const topId = folderFilesMap.has(fid) ? fid : (() => {
+          for (const tid of driveFolders.map(f => f.id)) { if (isDescendant(fid, tid)) return tid; }
+          return null;
+        })();
+        const folderText = topId ? (folderTextMap.get(topId)?.combinedText || '') : '';
+        const sc = matchScore(fname, s, folderText);
         if (sc > bestScore) { bestScore = sc; bestFolderId = fid; bestFolderName = fname; }
       }
       // Resolve to top-level folder that has files
@@ -538,7 +566,8 @@ exports.verifyAgainstDriveStream = async (req, res) => {
         }
       }
 
-      if (!bestFolderId || bestScore === 0) {
+      // Lower threshold: accept score >= 45 (was > 0, but now we have more granular scores)
+      if (!bestFolderId || bestScore < 45) {
         const matchedRootFile = rootExtracted.find(f => {
           const fn = f.file.toLowerCase().replace(/[^a-z0-9]/g, '');
           if (s.rollNumber && fn.includes(s.rollNumber.toLowerCase().replace(/[^a-z0-9]/g, ''))) return true;
@@ -624,7 +653,7 @@ exports.verifyRow = async (req, res) => {
   const { google } = require('googleapis');
   const fs        = require('fs');
   const path      = require('path');
-  const pdfParse  = require('pdf-parse');
+
   const mammoth   = require('mammoth');
 
   function getAuth() {
@@ -717,7 +746,7 @@ exports.verifyRow = async (req, res) => {
       await downloadWithRetry(drive, fileId, tmp);
       try {
         if (ext === '.pdf') {
-          const d = await pdfParse(fs.readFileSync(tmp));
+          const d = await parsePdf(fs.readFileSync(tmp));
           const text = d.text.trim();
           if (text.length > 30) return text;
           return await ocrPdf(tmp);
@@ -782,18 +811,23 @@ exports.verifyRow = async (req, res) => {
     // Score each subfolder against this row
     function score(folderName) {
       const fn = folderName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      // Roll number match — highest priority
       if (rowRoll) {
         const roll = rowRoll.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (fn === roll) return 100;
         if (fn.includes(roll) || roll.includes(fn)) return 100;
-        // Partial roll match (last 6+ chars)
-        if (roll.length >= 6 && fn.includes(roll.slice(-6))) return 80;
+        if (roll.length >= 6 && fn.includes(roll.slice(-6))) return 90;
+        if (roll.length >= 6 && fn.includes(roll.slice(0, 6))) return 85;
+        for (let len = Math.min(roll.length, 8); len >= 5; len--) {
+          for (let start = 0; start <= roll.length - len; start++) {
+            if (fn.includes(roll.slice(start, start + len))) return 70;
+          }
+        }
       }
-      // Name word match
       if (rowName) {
         const words = rowName.toLowerCase().split(/\s+/).filter(w => w.length > 2);
         const matched = words.filter(w => fn.includes(w)).length;
         if (matched === words.length && words.length > 0) return 60;
+        if (matched >= Math.ceil(words.length * 0.6) && matched > 0) return 45;
         if (matched > 0) return matched * 15;
       }
       return 0;
@@ -805,11 +839,11 @@ exports.verifyRow = async (req, res) => {
     if (subfolders.length > 0) {
       const scored = subfolders.map(f => ({ f, s: score(f.name) })).sort((a, b) => b.s - a.s);
       const best = scored[0];
-      if (best.s > 0) {
+      if (best.s >= 45) {
         targetFolderId    = best.f.id;
         matchedFolderName = best.f.name;
       } else {
-        return res.json({ verified: false, matchPct: 0, checks: {}, note: `No matching subfolder found. Best candidate: "${scored[0]?.f.name}" (score 0). Roll: ${rowRoll}, Name: ${rowName}` });
+        return res.json({ verified: false, matchPct: 0, checks: {}, note: `No matching subfolder found. Best candidate: "${scored[0]?.f.name}" (score ${best.s}). Roll: ${rowRoll}, Name: ${rowName}` });
       }
     }
 
@@ -830,23 +864,33 @@ exports.verifyRow = async (req, res) => {
     const checks = {};
     if (rowAadhaar) checks.aadhaar = aadhaarMatch(combined, rowAadhaar);
     if (rowPan)     checks.pan     = panMatch(combined, rowPan);
-    // Name is intentionally NOT checked — scanned ID cards (Aadhaar) often have names
-    // in regional script that OCR cannot read, causing false negatives.
+
+    // Roll number verified by folder name match — always add if folder was matched by roll
+    if (rowRoll && matchedFolderName) {
+      const fn   = matchedFolderName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const roll = rowRoll.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (fn.includes(roll) || roll.includes(fn)) checks.rollNumber = true;
+    }
 
     const mismatchedNumbers = [];
     if (checks.aadhaar === false) {
       const found = extractAadhaarFromText(combined);
-      mismatchedNumbers.push({ field: 'aadhaar', expected: rowAadhaar, found: found || 'not found' });
+      // If OCR extracted nothing at all, treat as OCR failure not a mismatch
+      const ocrFailed = combined.trim().length < 100;
+      mismatchedNumbers.push({ field: 'aadhaar', expected: rowAadhaar, found: found || 'not found', ocrFailed });
     }
     if (checks.pan === false) {
       const found = combined.toUpperCase().match(/([A-Z]{5}\d{4}[A-Z])/)?.[1] || 'not found';
-      mismatchedNumbers.push({ field: 'pan', expected: rowPan, found });
+      const ocrFailed = combined.trim().length < 100;
+      mismatchedNumbers.push({ field: 'pan', expected: rowPan, found, ocrFailed });
     }
 
     const total    = Object.keys(checks).length;
     const matched  = Object.values(checks).filter(Boolean).length;
     const matchPct = total > 0 ? Math.round((matched / total) * 100) : 0;
-    const verified = total > 0 && mismatchedNumbers.length === 0 && matched === total;
+    // verified = all checks pass, or rollNumber matched + no hard mismatches (only OCR failures)
+    const hardMismatches = mismatchedNumbers.filter(m => !m.ocrFailed);
+    const verified = total > 0 && hardMismatches.length === 0 && matched >= Math.ceil(total * 0.5);
 
     const foundAadhaar = extractAadhaarFromText(combined);
     const foundPan     = combined.toUpperCase().match(/([A-Z]{5}\d{4}[A-Z])/)?.[1] || null;
@@ -875,7 +919,7 @@ exports.verifyAgainstDrive = async (req, res) => {
   const { google } = require('googleapis');
   const fs        = require('fs');
   const path      = require('path');
-  const pdfParse  = require('pdf-parse');
+
   const mammoth   = require('mammoth');
 
   function getAuth() {
@@ -939,7 +983,7 @@ exports.verifyAgainstDrive = async (req, res) => {
           if (ext === '.xlsx' || ext === '.xls') {
             text = extractExcelText(tmp);
           } else if (ext === '.pdf') {
-            const d = await pdfParse(fs.readFileSync(tmp));
+            const d = await parsePdf(fs.readFileSync(tmp));
             text = d.text.trim();
             if (text.length <= 30) text = await ocrPdf(tmp);
           } else if (ext === '.docx') {

@@ -44,7 +44,7 @@ exports.findRelationships = async (req, res) => {
 
             const overlap = [...valsA].filter(v => valsB.has(v)).length;
             const overlapPct = Math.round((overlap / Math.min(valsA.size, valsB.size)) * 100);
-            if (overlapPct < 20) continue;
+            if (overlapPct < 10) continue;
 
             matches.push({ colA, colB, overlapPct });
           }
@@ -56,15 +56,18 @@ exports.findRelationships = async (req, res) => {
         const confidence = best >= 80 ? 'High' : best >= 40 ? 'Medium' : 'Low';
         const suggestedJoin = best === 100 ? 'INNER JOIN' : 'LEFT JOIN';
 
-        // Upsert — update if pair already exists, else create
-        await DatasetRelationship.upsert({
-          userId: req.userId,
-          datasetAId: a.id,
-          datasetBId: b.id,
-          matches,
-          confidence,
-          suggestedJoin,
-        }, { conflictFields: ['userId', 'datasetAId', 'datasetBId'] });
+        // Save — update if pair already exists, else create
+        const existing = await DatasetRelationship.findOne({
+          where: { userId: req.userId, datasetAId: a.id, datasetBId: b.id },
+        });
+        if (existing) {
+          await existing.update({ matches, confidence, suggestedJoin });
+        } else {
+          await DatasetRelationship.create({
+            userId: req.userId, datasetAId: a.id, datasetBId: b.id,
+            matches, confidence, suggestedJoin,
+          });
+        }
 
         discovered.push({ datasetAId: a.id, datasetBId: b.id });
       }

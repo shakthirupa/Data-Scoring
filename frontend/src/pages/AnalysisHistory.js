@@ -301,6 +301,8 @@ function AnalysisHistory() {
     });
   };
 
+  const [reverifyingId, setReverifyingId] = useState(null);
+
   const handleView = async (id) => {
     setViewLoading(true);
     setViewData(null);
@@ -326,6 +328,32 @@ function AnalysisHistory() {
       setRowVerify(normalized);
     }
     setViewLoading(false);
+  };
+
+  const handleReverifyAll = async (item) => {
+    if (!driveFolderId) { setFolderPrompt(true); return; }
+    setReverifyingId(item.id);
+    setViewLoading(true);
+    setViewData(null);
+    setRowVerify({});
+    setRowFilter('all');
+    abortControllersRef.current.forEach(ac => ac.abort());
+    abortControllersRef.current = [];
+    setVerifyingAll(false);
+    currentAnalysisIdRef.current = item.id;
+    const [res, settings] = await Promise.all([
+      api.getAnalysisById(item.id),
+      api.getSettings().catch(() => ({})),
+    ]);
+    setViewData(res);
+    setNullableCols(settings?.nullableColumns || []);
+    setRowSearch('');
+    const cols = detectSensitiveCols(res?.rawData || []);
+    setSensitiveCols(cols);
+    setViewLoading(false);
+    setReverifyingId(null);
+    // auto-start verify all after modal opens
+    setTimeout(() => verifyAllRows(res?.rawData || []), 200);
   };
 
   const handleDelete = async () => {
@@ -1541,6 +1569,17 @@ function AnalysisHistory() {
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.15)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}>
                         <Eye size={12} /> View
+                      </motion.button>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                        onClick={() => handleReverifyAll(item)}
+                        disabled={reverifyingId === item.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                        style={{ background: 'rgba(16,185,129,0.08)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.15)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(16,185,129,0.08)'}>
+                        {reverifyingId === item.id
+                          ? <><RefreshCw size={12} className="animate-spin" /> Verifying…</>
+                          : <><ShieldCheck size={12} /> Re-verify All</>}
                       </motion.button>
                       <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                         onClick={() => setConfirmId(item.id)}

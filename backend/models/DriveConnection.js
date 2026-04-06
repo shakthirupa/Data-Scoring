@@ -6,8 +6,9 @@ const DriveConnection = sequelize.define('DriveConnection', {
   userId:      { type: DataTypes.INTEGER, allowNull: true },
   folderId:    { type: DataTypes.STRING, allowNull: false },
   folderName:  { type: DataTypes.STRING, allowNull: false },
+  folderUrl:   { type: DataTypes.STRING, allowNull: true },
   connectedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
-  textCache:   { type: DataTypes.JSONB, defaultValue: null }, // [{ file, text }]
+  textCache:   { type: DataTypes.JSONB, defaultValue: null },
   textCachedAt:{ type: DataTypes.DATE, defaultValue: null },
 }, {
   timestamps: false,

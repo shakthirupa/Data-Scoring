@@ -49,11 +49,12 @@ exports.getJobProgress = (req, res) => {
 
 // ── POST /api/drive/connect ──────────────────────────────────────────────────
 exports.saveConnection = async (req, res) => {
-  const { folderId, folderName } = req.body;
+  const { folderId, folderName, folderUrl } = req.body;
   if (!folderId || !folderName) return res.status(400).json({ error: 'folderId and folderName required' });
   const userId = req.user.id;
-  const [conn] = await DriveConnection.findOrCreate({ where: { userId, folderId }, defaults: { userId, folderName, connectedAt: new Date() } });
-  await conn.update({ folderName, connectedAt: new Date() });
+  const url = folderUrl || `https://drive.google.com/drive/folders/${folderId}`;
+  const [conn] = await DriveConnection.findOrCreate({ where: { userId, folderId }, defaults: { userId, folderName, folderUrl: url, connectedAt: new Date() } });
+  await conn.update({ folderName, folderUrl: url, connectedAt: new Date() });
   res.json({ success: true, connection: conn });
 };
 

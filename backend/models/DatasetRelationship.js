@@ -15,6 +15,9 @@ const DatasetRelationship = sequelize.define('DatasetRelationship', {
   timestamps: true,
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
+  indexes: [
+    { unique: true, fields: ['userId', 'datasetAId', 'datasetBId'] },
+  ],
 });
 
 DatasetRelationship.belongsTo(Analysis, { as: 'datasetA', foreignKey: 'datasetAId' });

@@ -14,9 +14,8 @@ const https = require('https');
 const http = require('http');
 const xlsx = require('xlsx');
 const xml2js = require('xml2js');
-const pdfParse = require('pdf-parse');
-const { PDFParse: PDFParseClass } = pdfParse;
-const parsePdf = PDFParseClass ? (buf) => new PDFParseClass().parse(buf) : pdfParse;
+const { PDFParse: _PDFParseClass } = require('pdf-parse');
+const parsePdf = (buf) => new _PDFParseClass().parse(buf);
 const mammoth  = require('mammoth');
 const Tesseract = require('tesseract.js');
 const { ocrPdf } = require('../utils/pdfOcr');
@@ -439,15 +438,38 @@ async function parseFile(filePath, originalName, sheetName = null) {
       ? sheetName
       : wb.SheetNames[0];
     const ws = wb.Sheets[targetSheet];
-    const rows = xlsx.utils.sheet_to_json(ws, { defval: '', raw: true });
+
+    // Try sheet_to_json first — works for clean flat tables
+    let rows = xlsx.utils.sheet_to_json(ws, { defval: '', raw: true });
+
+    // If very few rows came back, the sheet likely has merged headers or title rows.
+    // Re-parse using raw array mode and find the real header row ourselves.
+    if (rows.length < 3) {
+      const arr = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+      // Find the first row that has the most non-empty cells — that's the header
+      let headerIdx = 0;
+      let maxFilled = 0;
+      arr.forEach((r, i) => {
+        const filled = r.filter(c => c !== '' && c !== null && c !== undefined).length;
+        if (filled > maxFilled) { maxFilled = filled; headerIdx = i; }
+      });
+      const headers = arr[headerIdx].map((h, i) => (h !== '' && h !== null ? String(h).trim() : `col_${i}`))
+      rows = arr.slice(headerIdx + 1)
+        .filter(r => r.some(c => c !== '' && c !== null && c !== undefined))
+        .map(r => {
+          const row = {};
+          headers.forEach((h, i) => { row[h] = r[i] ?? ''; });
+          return row;
+        });
+    }
+
     return rows.map(row => {
       const out = {};
       for (const [k, v] of Object.entries(row)) {
         if (typeof v === 'number' && Number.isFinite(v)) {
-          // Preserve full integer — avoid scientific notation
           out[k] = Number.isInteger(v) ? String(v) : v.toPrecision(15).replace(/\.?0+$/, '');
         } else {
-          out[k] = v;
+          out[k] = v === null || v === undefined ? '' : String(v);
         }
       }
       return out;
@@ -502,7 +524,8 @@ async function parseFile(filePath, originalName, sheetName = null) {
   }
 
   if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) {
-    const { data: { text } } = await Tesseract.recognize(filePath, 'eng', { logger: () => {} });
+    const { ocrImage } = require('../utils/pdfOcr');
+    const text = await ocrImage(filePath);
     return textToRows(text, path.basename(originalName, ext));
   }
 

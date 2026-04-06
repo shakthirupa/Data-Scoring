@@ -2,18 +2,14 @@ const fs        = require('fs');
 const path      = require('path');
 const Tesseract = require('tesseract.js');
 
-// Persistent worker — created once, reused for every OCR call
-let _worker = null;
-async function getWorker() {
-  if (_worker) return _worker;
-  _worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
-  return _worker;
-}
-
 async function ocrImage(imgPath) {
-  const worker = await getWorker();
-  const { data: { text } } = await worker.recognize(imgPath);
-  return text;
+  const worker = await Tesseract.createWorker('eng');
+  try {
+    const { data: { text } } = await worker.recognize(imgPath);
+    return text;
+  } finally {
+    await worker.terminate();
+  }
 }
 
 async function ocrPdf(pdfPath) {

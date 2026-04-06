@@ -292,8 +292,8 @@ const api = {
     const res = await fetch(`${BASE_URL}/drive/job/${jobId}`, { headers: authHeaders() });
     return res.json();
   },
-  saveDriveConnection: async (folderId, folderName) => {
-    const res = await fetch(`${BASE_URL}/drive/connect`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId, folderName }) });
+  saveDriveConnection: async (folderId, folderName, folderUrl) => {
+    const res = await fetch(`${BASE_URL}/drive/connect`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ folderId, folderName, folderUrl }) });
     return res.json();
   },
   getDriveConnections: async () => {
