@@ -1,4 +1,5 @@
 const { sendEmail } = require('../utils/mailer');
+const sendSMS = require('../utils/smsSender');
 const Analysis = require('../models/Analysis');
 const axios = require('axios');
 
@@ -68,7 +69,21 @@ exports.sendEmailAlerts = async (req, res) => {
   }
 };
 
-exports.sendManualSms     = async (req, res) => res.json({ success: true, smsSent: 0, errors: [] });
+/**
+ * POST /api/notifications/send-manual
+ * Body: { phones: [{ phone, message }] }
+ */
+exports.sendManualSms = async (req, res) => {
+  const { phones } = req.body;
+  if (!Array.isArray(phones) || phones.length === 0)
+    return res.status(400).json({ error: 'phones array is required' });
+
+  res.json({ success: true, total: phones.length });
+
+  for (const { phone, message } of phones) {
+    await sendSMS(phone, message);
+  }
+};
 exports.sendNotifications = async (req, res) => res.json({ success: true });
 exports.getNotificationLogs = async (req, res) => res.json({ total: 0, logs: [] });
 
