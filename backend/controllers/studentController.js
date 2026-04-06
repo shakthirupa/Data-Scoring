@@ -267,12 +267,10 @@ exports.verifyAgainstDriveStream = async (req, res) => {
     const parts = [];
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
-      for (const key of Object.keys(ws)) {
-        if (key.startsWith('!')) continue;
-        const cell = ws[key];
-        if (cell && cell.v !== undefined && cell.v !== null && cell.v !== '') {
-          // Use raw numeric value (avoids scientific notation truncation)
-          parts.push(String(cell.v));
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      for (const row of rows) {
+        for (const val of Object.values(row)) {
+          if (val !== undefined && val !== null && val !== '') parts.push(String(val));
         }
       }
     }
@@ -663,11 +661,10 @@ exports.verifyRow = async (req, res) => {
     const parts = [];
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
-      for (const key of Object.keys(ws)) {
-        if (key.startsWith('!')) continue;
-        const cell = ws[key];
-        if (cell && cell.v !== undefined && cell.v !== null && cell.v !== '') {
-          parts.push(String(cell.v));
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      for (const row of rows) {
+        for (const val of Object.values(row)) {
+          if (val !== undefined && val !== null && val !== '') parts.push(String(val));
         }
       }
     }
@@ -1043,15 +1040,23 @@ exports.extractBulk = async (req, res) => {
 // GET /api/students
 exports.list = async (req, res) => {
   try {
-    const { search, page = 1, limit = 50 } = req.query;
-    const where = search ? {
-      [Op.or]: [
-        { name:       { [Op.iLike]: `%${search}%` } },
-        { rollNumber: { [Op.iLike]: `%${search}%` } },
-        { aadhaar:    { [Op.iLike]: `%${search}%` } },
-        { phone:      { [Op.iLike]: `%${search}%` } },
-      ],
-    } : {};
+    const { search, searchColumn, page = 1, limit = 50 } = req.query;
+    const ALLOWED_COLUMNS = ['name', 'rollNumber', 'aadhaar', 'phone', 'email', 'pan', 'dlNumber'];
+    let where = {};
+    if (search) {
+      if (searchColumn && ALLOWED_COLUMNS.includes(searchColumn)) {
+        where = { [searchColumn]: { [Op.iLike]: `%${search}%` } };
+      } else {
+        where = {
+          [Op.or]: [
+            { name:       { [Op.iLike]: `%${search}%` } },
+            { rollNumber: { [Op.iLike]: `%${search}%` } },
+            { aadhaar:    { [Op.iLike]: `%${search}%` } },
+            { phone:      { [Op.iLike]: `%${search}%` } },
+          ],
+        };
+      }
+    }
     const { count, rows } = await Student.findAndCountAll({ where, order: [['createdAt', 'DESC']], limit: parseInt(limit), offset: (parseInt(page) - 1) * parseInt(limit) });
     res.json({ students: rows, total: count, page: parseInt(page), pages: Math.ceil(count / limit) });
   } catch (err) { res.status(500).json({ error: err.message }); }

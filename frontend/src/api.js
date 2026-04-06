@@ -377,6 +377,18 @@ const api = {
   },
 
   // Comparison
+  findRelationships: async () => {
+    const res = await fetch(`${BASE_URL}/comparison/relationships/scan`, { method: 'POST', headers: authHeaders() });
+    return res.json();
+  },
+  getSavedRelationships: async () => {
+    const res = await fetch(`${BASE_URL}/comparison/relationships`, { headers: authHeaders() });
+    return res.json();
+  },
+  deleteRelationship: async (id) => {
+    const res = await fetch(`${BASE_URL}/comparison/relationships/${id}`, { method: 'DELETE', headers: authHeaders() });
+    return res.json();
+  },
   compareAnalyses: async (analysisIds) => {
     const res = await fetch(`${BASE_URL}/comparison/compare`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ analysisIds }) });
     return res.json();

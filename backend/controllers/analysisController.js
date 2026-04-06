@@ -6,6 +6,7 @@ const { runRules } = require('../utils/ruleEngine');
 const { ConsistencyResult } = require('../models/ConsistencyModels');
 const { recordSnapshot } = require('./integrityController');
 const { computeAndSave: saveForensics } = require('./forensicsController');
+const { getNullableColumns } = require('./settingsController');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
@@ -57,40 +58,43 @@ function isCellInvalid(val, colL) {
   return false;
 }
 
-function calculateScores(data) {
+function calculateScores(data, nullableCols = []) {
+  const nullable = new Set(nullableCols.map(c => c.toLowerCase()));
   const totalRows = data.length;
   if (totalRows === 0) return { completeness: 0, uniqueness: 0, validity: 0, consistency: 0, overallScore: 0, problemRowPct: 0 };
 
   const columns = Object.keys(data[0]);
-  const totalCells = totalRows * columns.length;
+  const scoredCols = columns.filter(c => !nullable.has(c.toLowerCase()));
+  const totalCells = totalRows * (scoredCols.length || columns.length);
 
-  // Completeness = (NonNullValues / TotalValues) × 100
+  // Completeness — only non-nullable columns
   let filledCells = 0;
-  data.forEach(row => columns.forEach(col => { if (!isEmpty(row[col])) filledCells++; }));
-  const completeness = Math.round((filledCells / totalCells) * 100);
+  data.forEach(row => scoredCols.forEach(col => { if (!isEmpty(row[col])) filledCells++; }));
+  const completeness = totalCells > 0 ? Math.round((filledCells / totalCells) * 100) : 100;
 
-  // Uniqueness: for single-row docs, base on field fill ratio instead of row dedup
+  // Uniqueness
   let uniqueness;
   if (totalRows === 1) {
-    uniqueness = completeness; // single record — uniqueness mirrors completeness
+    uniqueness = completeness;
   } else {
     const uniqueRows = new Set(data.map(row => JSON.stringify(row))).size;
     uniqueness = Math.round((uniqueRows / totalRows) * 100);
   }
 
-  // Validity = (ValidEntries / TotalEntries) × 100
-  // ValidEntries = cells that are non-empty AND pass format validation
-  let validEntries = 0;
+  // Validity — only non-nullable columns
+  let validEntries = 0, filledForValidity = 0;
   data.forEach(row => {
-    columns.forEach(col => {
+    scoredCols.forEach(col => {
       const val = row[col];
-      if (!isEmpty(val) && !isCellInvalid(val, col.toLowerCase())) validEntries++;
+      if (!isEmpty(val)) {
+        filledForValidity++;
+        if (!isCellInvalid(val, col.toLowerCase())) validEntries++;
+      }
     });
   });
-  const validity = Math.round((validEntries / Math.max(filledCells, 1)) * 100);
+  const validity = Math.round((validEntries / Math.max(filledForValidity, 1)) * 100);
 
-  // Consistency = (ConsistentRecords / TotalRecords) × 100
-  // A record is consistent if all its columns have uniform expected types
+  // Consistency — all columns
   let inconsistentCols = 0;
   columns.forEach(col => {
     const nonEmpty = data.map(row => row[col]).filter(v => !isEmpty(v));
@@ -100,7 +104,7 @@ function calculateScores(data) {
   });
   const consistency = Math.round(((columns.length - inconsistentCols) / Math.max(columns.length, 1)) * 100);
 
-  // Problem Rows% = (RowsWithIssues / TotalRows) × 100
+  // Problem rows — skip nullable columns for missing-value check
   const seen = new Set();
   const dupRowIndices = new Set();
   if (totalRows > 1) {
@@ -112,21 +116,18 @@ function calculateScores(data) {
   }
   const problemRows = data.filter((row, idx) =>
     dupRowIndices.has(idx) ||
-    columns.some(col => isEmpty(row[col]) || isCellInvalid(row[col], col.toLowerCase()))
+    scoredCols.some(col => isEmpty(row[col]) || isCellInvalid(row[col], col.toLowerCase()))
   ).length;
   const problemRowPct = Math.round((problemRows / totalRows) * 100);
 
-  // Weighted Score (w1=0.3, w2=0.2, w3=0.3, w4=0.2)
   const weightedScore = (completeness * 0.3) + (uniqueness * 0.2) + (validity * 0.3) + (consistency * 0.2);
-
-  // Final Adjusted Score = WeightedScore − (ProblemRows% × PenaltyFactor)
-  const penaltyFactor = 0.3;
-  const overallScore = Math.max(0, Math.round(weightedScore - (problemRowPct * penaltyFactor)));
+  const overallScore = Math.max(0, Math.round(weightedScore - (problemRowPct * 0.3)));
 
   return { completeness, uniqueness, validity, consistency, overallScore, problemRowPct };
 }
 
-async function detectAndSaveIssues(analysisId, data) {
+async function detectAndSaveIssues(analysisId, data, nullableCols = []) {
+  const nullable = new Set(nullableCols.map(c => c.toLowerCase()));
   const issues = [];
   const totalRows = data.length;
   if (totalRows === 0) return;
@@ -134,8 +135,8 @@ async function detectAndSaveIssues(analysisId, data) {
   const columns = Object.keys(data[0]);
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  // Missing values per column
-  columns.forEach(col => {
+  // Missing values — skip nullable columns
+  columns.filter(col => !nullable.has(col.toLowerCase())).forEach(col => {
     const missing = data.filter(row => isEmpty(row[col])).length;
     if (missing > 0) {
       const pct = Math.round((missing / totalRows) * 100);
@@ -433,12 +434,24 @@ async function parseFile(filePath, originalName, sheetName = null) {
   }
 
   if (ext === '.xlsx' || ext === '.xls' || ext === '.ods') {
-    const wb = xlsx.readFile(filePath);
+    const wb = xlsx.readFile(filePath, { cellText: false, cellDates: true });
     const targetSheet = sheetName && wb.SheetNames.includes(sheetName)
       ? sheetName
       : wb.SheetNames[0];
     const ws = wb.Sheets[targetSheet];
-    return xlsx.utils.sheet_to_json(ws, { defval: '' });
+    const rows = xlsx.utils.sheet_to_json(ws, { defval: '', raw: true });
+    return rows.map(row => {
+      const out = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          // Preserve full integer — avoid scientific notation
+          out[k] = Number.isInteger(v) ? String(v) : v.toPrecision(15).replace(/\.?0+$/, '');
+        } else {
+          out[k] = v;
+        }
+      }
+      return out;
+    });
   }
 
   if (ext === '.json' || ext === '.ndjson') {
@@ -505,10 +518,10 @@ exports.getSheets = async (req, res) => {
     return res.status(400).json({ error: 'Sheet selection only applies to Excel/ODS files' });
   }
   try {
-    const wb = xlsx.readFile(req.file.path);
+    const wb = xlsx.readFile(req.file.path, { cellText: false, cellDates: true });
     const sheets = wb.SheetNames.map(name => {
       const ws = wb.Sheets[name];
-      const rows = xlsx.utils.sheet_to_json(ws, { defval: '' });
+      const rows = xlsx.utils.sheet_to_json(ws, { defval: '', raw: true });
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
       return { name, rowCount: rows.length, columnCount: columns.length, columns: columns.slice(0, 8) };
     });
@@ -546,18 +559,18 @@ exports.uploadFile = async (req, res) => {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       return res.status(400).json({ error: `Parse error: ${parseErr.message}` });
     }
-    // Normalise all values to strings for consistent scoring
     results = results.map(row => {
       const norm = {};
       Object.keys(row).forEach(k => { norm[k] = row[k] === null || row[k] === undefined ? '' : String(row[k]); });
       return norm;
     });
+    const nullableCols = await getNullableColumns(req.userId);
     const displayName = sheetName ? `${originalName} — ${sheetName}` : originalName;
-    const scores = calculateScores(results);
+    const scores = calculateScores(results, nullableCols);
     const analysis = await Analysis.create({
       fileName: displayName, fileSize, rowCount: results.length, rawData: results, userId: req.userId, ...scores
     });
-    await detectAndSaveIssues(analysis.id, results);
+    await detectAndSaveIssues(analysis.id, results, nullableCols);
     await generateFingerprint(analysis.id, displayName, results, filePath);
     await runAndSaveConsistency(analysis.id, results);
     await recordSnapshot(analysis);
@@ -584,12 +597,13 @@ exports.uploadFromUrl = async (req, res) => {
       Object.keys(row).forEach(k => { norm[k] = row[k] === null || row[k] === undefined ? '' : String(row[k]); });
       return norm;
     });
-    const scores = calculateScores(results);
+    const nullableCols = await getNullableColumns(req.userId);
+    const scores = calculateScores(results, nullableCols);
     const fileName = `Google Sheet (${new Date().toLocaleDateString()})`;
     const analysis = await Analysis.create({
       fileName, fileSize: 0, rowCount: results.length, rawData: results, userId: req.userId, ...scores
     });
-    await detectAndSaveIssues(analysis.id, results);
+    await detectAndSaveIssues(analysis.id, results, nullableCols);
     await generateFingerprint(analysis.id, fileName, results, null);
     await runAndSaveConsistency(analysis.id, results);
     await recordSnapshot(analysis);
@@ -663,6 +677,99 @@ exports.saveVerificationStatus = async (req, res) => {
     if (!analysis) return res.status(404).json({ error: 'Analysis not found' });
     await analysis.update({ verificationStatus });
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.findRelationships = async (req, res) => {
+  try {
+    const where = req.userId ? { userId: req.userId } : {};
+    const analyses = await Analysis.findAll({ where, order: [['createdAt', 'DESC']], limit: 50 });
+    if (analyses.length < 2) return res.json({ relationships: [] });
+
+    const normalise = (col) => col.toLowerCase().replace(/[\s_\-\.]+/g, '');
+
+    // Build meta for every dataset — use ALL columns, not just key-like ones
+    const meta = analyses.map(a => {
+      const rows = a.rawData || [];
+      const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const colValues = {};
+      cols.forEach(col => {
+        const vals = rows
+          .map(r => String(r[col] ?? '').trim().toLowerCase())
+          .filter(v => v && v !== 'null' && v !== 'undefined' && v !== 'n/a');
+        if (vals.length > 0) colValues[col] = new Set(vals);
+      });
+      return { id: a.id, fileName: a.fileName, rowCount: rows.length, cols, colValues };
+    });
+
+    const relationships = [];
+
+    for (let i = 0; i < meta.length; i++) {
+      for (let j = i + 1; j < meta.length; j++) {
+        const a = meta[i];
+        const b = meta[j];
+        const matches = [];
+
+        for (const colA of a.cols) {
+          const valsA = a.colValues[colA];
+          if (!valsA || valsA.size < 2) continue;
+          const normA = normalise(colA);
+
+          for (const colB of b.cols) {
+            const valsB = b.colValues[colB];
+            if (!valsB || valsB.size < 2) continue;
+            const normB = normalise(colB);
+
+            // 1. Column name similarity
+            const exactMatch = normA === normB;
+            const partialMatch = normA.length >= 3 && normB.length >= 3 &&
+              (normA.includes(normB) || normB.includes(normA));
+            const prefixMatch = normA.length >= 4 && normB.length >= 4 &&
+              normA.slice(0, 4) === normB.slice(0, 4);
+            const nameSimilar = exactMatch || partialMatch || prefixMatch;
+
+            // 2. Value overlap — check how many values from the smaller set exist in the larger
+            const [smaller, larger] = valsA.size <= valsB.size ? [valsA, valsB] : [valsB, valsA];
+            const overlap = [...smaller].filter(v => larger.has(v)).length;
+            const overlapPct = Math.round((overlap / smaller.size) * 100);
+
+            // Accept if: name matches with any overlap, OR high value overlap regardless of name
+            if ((nameSimilar && overlapPct >= 1) || overlapPct >= 50) {
+              matches.push({
+                colA,
+                colB,
+                overlapPct,
+                overlapCount: overlap,
+                joinType: exactMatch ? 'INNER JOIN' : 'LEFT JOIN',
+              });
+            }
+          }
+        }
+
+        if (matches.length > 0) {
+          matches.sort((x, y) => y.overlapPct - x.overlapPct);
+          const best = matches[0];
+          relationships.push({
+            datasetA: { id: a.id, fileName: a.fileName, rowCount: a.rowCount },
+            datasetB: { id: b.id, fileName: b.fileName, rowCount: b.rowCount },
+            matches: matches.slice(0, 5),
+            suggestedJoin: best.joinType,
+            confidence: best.overlapPct >= 70 ? 'High' : best.overlapPct >= 30 ? 'Medium' : 'Low',
+          });
+        }
+      }
+    }
+
+    // Sort by confidence then overlap
+    relationships.sort((a, b) => {
+      const order = { High: 0, Medium: 1, Low: 2 };
+      return (order[a.confidence] - order[b.confidence]) ||
+             (b.matches[0].overlapPct - a.matches[0].overlapPct);
+    });
+
+    res.json({ relationships });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const auth = require('../middleware/auth');
 const fp = require('../controllers/fingerprintController');
+
+router.use(auth);
 
 router.get('/all',                    fp.getAll);
 router.get('/duplicates',             fp.getDuplicates);

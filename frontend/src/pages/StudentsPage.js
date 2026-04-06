@@ -30,8 +30,9 @@ export default function StudentsPage() {
   const [total, setTotal]       = useState(0);
   const [page, setPage]         = useState(1);
   const [pages, setPages]       = useState(1);
-  const [search, setSearch]     = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [search, setSearch]         = useState('');
+  const [searchColumn, setSearchColumn] = useState('all');
+  const [loading, setLoading]       = useState(false);
 
   // Modal
   const [modal, setModal]       = useState(null); // 'add' | 'edit' | 'extract'
@@ -86,13 +87,13 @@ export default function StudentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.getStudents({ search, page, limit: 20 });
+      const data = await api.getStudents({ search, searchColumn, page, limit: 20 });
       setStudents(data.students || []);
       setTotal(data.total || 0);
       setPages(data.pages || 1);
     } catch {}
     setLoading(false);
-  }, [search, page]);
+  }, [search, searchColumn, page]);
 
   function getFieldJustification(field, passed, mismatch) {
     if (passed) return { color: '#10b981', headline: 'Match confirmed', detail: 'Value found in document.' };
@@ -399,10 +400,23 @@ export default function StudentsPage() {
 
       {/* Search + Filter */}
       <div className="flex gap-2">
+        <select
+          value={searchColumn}
+          onChange={e => { setSearchColumn(e.target.value); setPage(1); }}
+          style={{ ...inputStyle, width: 'auto', flexShrink: 0, borderRadius: '12px', cursor: 'pointer' }}>
+          <option value="all">All Columns</option>
+          <option value="name">Name</option>
+          <option value="rollNumber">Roll Number</option>
+          <option value="aadhaar">Aadhaar</option>
+          <option value="phone">Phone</option>
+          <option value="email">Email</option>
+          <option value="pan">PAN</option>
+          <option value="dlNumber">DL Number</option>
+        </select>
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: labelColor }} />
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search by name, roll number, Aadhaar or phone…"
+            placeholder={searchColumn === 'all' ? 'Search by name, roll number, Aadhaar or phone…' : `Search by ${searchColumn}…`}
             style={{ ...inputStyle, paddingLeft: 34, borderRadius: '12px' }} />
         </div>
         <button

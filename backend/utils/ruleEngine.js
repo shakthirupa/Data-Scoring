@@ -8,6 +8,9 @@
 // Finds the actual column key in a row using fuzzy aliases.
 
 const ALIASES = {
+  account:    ['account', 'account_number', 'acc_no', 'account_no', 'acct', 'acct_no', 'bank_account', 'bank_acc', 'accountnumber'],
+  bank:       ['bank', 'bank_name', 'bankname', 'bank_nm', 'financial_institution'],
+  ifsc:       ['ifsc', 'ifsc_code', 'bank_code', 'branch_code', 'ifsccode'],
   age:        ['age', 'years', 'age_years', 'person_age', 'user_age'],
   degree:     ['degree', 'education', 'qualification', 'edu', 'education_level', 'highest_degree'],
   salary:     ['salary', 'wage', 'pay', 'income', 'annual_salary', 'compensation', 'ctc'],
@@ -392,6 +395,124 @@ const BUILT_IN_RULES = [
       return null;
     },
   },
+
+  // ── Payment / Banking ────────────────────────────────────────────────────
+  {
+    id: 'BANK_ACCOUNT_LENGTH',
+    name: 'Account number length does not match bank',
+    severity: 'High',
+    category: 'Payment',
+    requiredFields: ['account', 'bank'],
+    check(row) {
+      const account = get(row, 'account');
+      const bank    = get(row, 'bank');
+      if (!account || !bank) return null;
+
+      const digits = String(account).trim().replace(/[\s\-]/g, '').replace(/[^\d]/g, '');
+      if (!digits) return null;
+      const len = digits.length;
+      const b   = bank.toLowerCase();
+
+      const BANK_LENGTH_MAP = [
+        // Public Sector Banks
+        { match: /sbi|state bank of india/,                    range: [11, 17] },
+        { match: /pnb|punjab national/,                        range: [16, 16] },
+        { match: /bank of baroda|\bbob\b/,                     range: [14, 14] },
+        { match: /canara/,                                     range: [13, 13] },
+        { match: /union bank/,                                 range: [15, 15] },
+        { match: /bank of india|\bboi\b/,                      range: [15, 15] },
+        { match: /central bank/,                               range: [10, 10] },
+        { match: /indian overseas|iob/,                        range: [15, 15] },
+        { match: /indian bank/,                                range: [15, 15] },
+        { match: /uco bank/,                                   range: [15, 15] },
+        { match: /bank of maharashtra|bom/,                    range: [15, 15] },
+        { match: /punjab.*sind|psb/,                           range: [16, 16] },
+        // Private Sector Banks
+        { match: /hdfc/,                                       range: [14, 14] },
+        { match: /icici/,                                      range: [12, 12] },
+        { match: /axis/,                                       range: [15, 15] },
+        { match: /kotak/,                                      range: [14, 14] },
+        { match: /yes bank/,                                   range: [15, 15] },
+        { match: /idbi/,                                       range: [16, 16] },
+        { match: /indusind/,                                   range: [15, 15] },
+        { match: /federal bank/,                               range: [14, 14] },
+        { match: /south indian bank|sib/,                      range: [16, 16] },
+        { match: /karnataka bank|kbl/,                         range: [13, 13] },
+        { match: /karur vysya|kvb/,                            range: [16, 16] },
+        { match: /city union|cub/,                             range: [15, 15] },
+        { match: /tamilnad mercantile|tmb/,                    range: [15, 15] },
+        { match: /dhanlaxmi/,                                  range: [14, 14] },
+        { match: /dcb|development credit/,                     range: [13, 13] },
+        { match: /rbl|ratnakar/,                               range: [14, 14] },
+        { match: /csb|catholic syrian/,                        range: [13, 13] },
+        { match: /lakshmi vilas|lvb/,                          range: [15, 15] },
+        { match: /nainital/,                                   range: [11, 11] },
+        { match: /jammu.*kashmir|j&k bank/,                    range: [11, 11] },
+        { match: /bandhan/,                                    range: [17, 17] },
+        { match: /idfc/,                                       range: [12, 12] },
+        // Small Finance Banks
+        { match: /au small finance|au sfb/,                    range: [14, 14] },
+        { match: /equitas/,                                    range: [15, 15] },
+        { match: /ujjivan/,                                    range: [15, 15] },
+        { match: /suryoday/,                                   range: [14, 14] },
+        { match: /esaf/,                                       range: [14, 14] },
+        { match: /fincare/,                                    range: [14, 14] },
+        { match: /jana small|jana sfb/,                        range: [16, 16] },
+        { match: /north east small|ne sfb/,                    range: [14, 14] },
+        { match: /shivalik/,                                   range: [14, 14] },
+        { match: /unity small|unity sfb/,                      range: [14, 14] },
+        // Payments Banks
+        { match: /paytm payments/,                             range: [17, 17] },
+        { match: /airtel payments/,                            range: [11, 11] },
+        { match: /fino payments/,                              range: [16, 16] },
+        { match: /india post payments|ippb/,                   range: [11, 11] },
+        { match: /jio payments/,                               range: [12, 12] },
+        // Foreign Banks operating in India
+        { match: /citibank|citi/,                              range: [10, 10] },
+        { match: /hsbc/,                                       range: [12, 12] },
+        { match: /standard chartered|scb/,                     range: [11, 11] },
+        { match: /deutsche/,                                   range: [10, 10] },
+        { match: /dbs/,                                        range: [10, 10] },
+        { match: /barclays/,                                   range: [11, 11] },
+        { match: /bnp paribas/,                                range: [11, 11] },
+        { match: /abu dhabi commercial|adcb/,                  range: [13, 13] },
+        { match: /doha bank/,                                  range: [12, 12] },
+        { match: /mashreq/,                                    range: [12, 12] },
+        // Co-operative Banks
+        { match: /saraswat/,                                   range: [14, 14] },
+        { match: /cosmos/,                                     range: [14, 14] },
+        { match: /shamrao vithal|svc/,                         range: [14, 14] },
+        { match: /abhyudaya/,                                  range: [13, 13] },
+        { match: /bassein catholic/,                           range: [13, 13] },
+        { match: /tjsb/,                                       range: [13, 13] },
+        { match: /apna sahakari/,                              range: [13, 13] },
+      ];
+
+      const matched = BANK_LENGTH_MAP.find(e => e.match.test(b));
+      if (!matched) return null;
+
+      const [min, max] = matched.range;
+      if (len < min || len > max) {
+        const expected = min === max ? `${min} digits` : `${min}–${max} digits`;
+        return `Account number has ${len} digit${len !== 1 ? 's' : ''} but ${bank} accounts should have ${expected}`;
+      }
+      return null;
+    },
+  },
+  {
+    id: 'IFSC_FORMAT',
+    name: 'Invalid IFSC code format',
+    severity: 'Medium',
+    category: 'Payment',
+    requiredFields: ['ifsc'],
+    check(row) {
+      const ifsc = get(row, 'ifsc');
+      if (!ifsc) return null;
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc.trim().toUpperCase()))
+        return `IFSC code "${ifsc}" is invalid — expected format: 4 letters + 0 + 6 alphanumeric (e.g. SBIN0001234)`;
+      return null;
+    },
+  },
 ];
 
 // ── Rule registry ─────────────────────────────────────────────────────────────
@@ -482,4 +603,102 @@ function runRules(rows, ruleIds = null) {
   };
 }
 
-module.exports = { registry, runRules, resolve, get, getNum };
+// ── Bank account tooltip helper ──────────────────────────────────────────────
+// Returns { valid, bank, digits, expected, note } for a row, or null if not a payment dataset.
+function checkBankAccount(row) {
+  const account = get(row, 'account');
+  const bank    = get(row, 'bank');
+  if (!account || !bank) return null;
+
+  const digits = String(account).trim().replace(/[\s\-]/g, '').replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const len = digits.length;
+  const b   = bank.toLowerCase();
+
+  const BANK_LENGTH_MAP = [
+    { match: /sbi|state bank of india/,           range: [11, 17], label: 'SBI' },
+    { match: /pnb|punjab national/,               range: [16, 16], label: 'PNB' },
+    { match: /bank of baroda|\bbob\b/,            range: [14, 14], label: 'Bank of Baroda' },
+    { match: /canara/,                            range: [13, 13], label: 'Canara Bank' },
+    { match: /union bank/,                        range: [15, 15], label: 'Union Bank' },
+    { match: /bank of india|\bboi\b/,             range: [15, 15], label: 'Bank of India' },
+    { match: /central bank/,                      range: [10, 10], label: 'Central Bank' },
+    { match: /indian overseas|iob/,               range: [15, 15], label: 'IOB' },
+    { match: /indian bank/,                       range: [15, 15], label: 'Indian Bank' },
+    { match: /uco bank/,                          range: [15, 15], label: 'UCO Bank' },
+    { match: /bank of maharashtra|bom/,           range: [15, 15], label: 'Bank of Maharashtra' },
+    { match: /punjab.*sind|psb/,                  range: [16, 16], label: 'Punjab & Sind Bank' },
+    { match: /hdfc/,                              range: [14, 14], label: 'HDFC Bank' },
+    { match: /icici/,                             range: [12, 12], label: 'ICICI Bank' },
+    { match: /axis/,                              range: [15, 15], label: 'Axis Bank' },
+    { match: /kotak/,                             range: [14, 14], label: 'Kotak Bank' },
+    { match: /yes bank/,                          range: [15, 15], label: 'Yes Bank' },
+    { match: /idbi/,                              range: [16, 16], label: 'IDBI Bank' },
+    { match: /indusind/,                          range: [15, 15], label: 'IndusInd Bank' },
+    { match: /federal bank/,                      range: [14, 14], label: 'Federal Bank' },
+    { match: /south indian bank|sib/,             range: [16, 16], label: 'South Indian Bank' },
+    { match: /karnataka bank|kbl/,                range: [13, 13], label: 'Karnataka Bank' },
+    { match: /karur vysya|kvb/,                   range: [16, 16], label: 'KVB' },
+    { match: /city union|cub/,                    range: [15, 15], label: 'City Union Bank' },
+    { match: /tamilnad mercantile|tmb/,           range: [15, 15], label: 'TMB' },
+    { match: /dhanlaxmi/,                         range: [14, 14], label: 'Dhanlaxmi Bank' },
+    { match: /dcb|development credit/,            range: [13, 13], label: 'DCB Bank' },
+    { match: /rbl|ratnakar/,                      range: [14, 14], label: 'RBL Bank' },
+    { match: /csb|catholic syrian/,               range: [13, 13], label: 'CSB Bank' },
+    { match: /lakshmi vilas|lvb/,                 range: [15, 15], label: 'Lakshmi Vilas Bank' },
+    { match: /nainital/,                          range: [11, 11], label: 'Nainital Bank' },
+    { match: /jammu.*kashmir|j&k bank/,           range: [11, 11], label: 'J&K Bank' },
+    { match: /bandhan/,                           range: [17, 17], label: 'Bandhan Bank' },
+    { match: /idfc/,                              range: [12, 12], label: 'IDFC First Bank' },
+    { match: /au small finance|au sfb/,           range: [14, 14], label: 'AU Small Finance Bank' },
+    { match: /equitas/,                           range: [15, 15], label: 'Equitas SFB' },
+    { match: /ujjivan/,                           range: [15, 15], label: 'Ujjivan SFB' },
+    { match: /suryoday/,                          range: [14, 14], label: 'Suryoday SFB' },
+    { match: /esaf/,                              range: [14, 14], label: 'ESAF SFB' },
+    { match: /fincare/,                           range: [14, 14], label: 'Fincare SFB' },
+    { match: /jana small|jana sfb/,               range: [16, 16], label: 'Jana SFB' },
+    { match: /north east small|ne sfb/,           range: [14, 14], label: 'NE SFB' },
+    { match: /shivalik/,                          range: [14, 14], label: 'Shivalik SFB' },
+    { match: /unity small|unity sfb/,             range: [14, 14], label: 'Unity SFB' },
+    { match: /paytm payments/,                    range: [17, 17], label: 'Paytm Payments Bank' },
+    { match: /airtel payments/,                   range: [11, 11], label: 'Airtel Payments Bank' },
+    { match: /fino payments/,                     range: [16, 16], label: 'Fino Payments Bank' },
+    { match: /india post payments|ippb/,          range: [11, 11], label: 'IPPB' },
+    { match: /jio payments/,                      range: [12, 12], label: 'Jio Payments Bank' },
+    { match: /citibank|citi/,                     range: [10, 10], label: 'Citibank' },
+    { match: /hsbc/,                              range: [12, 12], label: 'HSBC' },
+    { match: /standard chartered|scb/,            range: [11, 11], label: 'Standard Chartered' },
+    { match: /deutsche/,                          range: [10, 10], label: 'Deutsche Bank' },
+    { match: /dbs/,                               range: [10, 10], label: 'DBS Bank' },
+    { match: /barclays/,                          range: [11, 11], label: 'Barclays' },
+    { match: /bnp paribas/,                       range: [11, 11], label: 'BNP Paribas' },
+    { match: /abu dhabi commercial|adcb/,         range: [13, 13], label: 'ADCB' },
+    { match: /doha bank/,                         range: [12, 12], label: 'Doha Bank' },
+    { match: /mashreq/,                           range: [12, 12], label: 'Mashreq Bank' },
+    { match: /saraswat/,                          range: [14, 14], label: 'Saraswat Bank' },
+    { match: /cosmos/,                            range: [14, 14], label: 'Cosmos Bank' },
+    { match: /shamrao vithal|svc/,                range: [14, 14], label: 'SVC Bank' },
+    { match: /abhyudaya/,                         range: [13, 13], label: 'Abhyudaya Bank' },
+    { match: /bassein catholic/,                  range: [13, 13], label: 'Bassein Catholic Bank' },
+    { match: /tjsb/,                              range: [13, 13], label: 'TJSB Bank' },
+    { match: /apna sahakari/,                     range: [13, 13], label: 'Apna Sahakari Bank' },
+  ];
+
+  const matched = BANK_LENGTH_MAP.find(e => e.match.test(b));
+  if (!matched) return { valid: null, bank, digits: len, expected: null, note: `${bank} — no standard on record` };
+
+  const [min, max] = matched.range;
+  const expected = min === max ? `${min} digits` : `${min}–${max} digits`;
+  const valid = len >= min && len <= max;
+  return {
+    valid,
+    bank: matched.label,
+    digits: len,
+    expected,
+    note: valid
+      ? `✓ Matches ${matched.label} standard (${expected})`
+      : `✗ ${matched.label} accounts need ${expected}, got ${len}`,
+  };
+}
+
+module.exports = { registry, runRules, resolve, get, getNum, checkBankAccount };

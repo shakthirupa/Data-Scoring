@@ -14,7 +14,12 @@ function timeSince(date) {
 
 exports.resolveIssue = async (req, res) => {
   try {
-    await DataIssue.update({ resolved: true }, { where: { id: req.params.id } });
+    const issue = await DataIssue.findOne({
+      where: { id: req.params.id },
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: ['id'] }],
+    });
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+    await issue.update({ resolved: true });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -30,7 +35,10 @@ exports.getDashboardStats = async (req, res) => {
     const allAnalyses = await Analysis.findAll({ where: userWhere, attributes: ['overallScore'] });
     const avgScore = allAnalyses.length > 0
       ? Math.round(allAnalyses.reduce((s, a) => s + a.overallScore, 0) / allAnalyses.length) : 0;
-    const criticalIssues = await DataIssue.count({ where: { severity: 'Critical', resolved: false } });
+    const criticalIssues = await DataIssue.count({
+      where: { severity: 'Critical', resolved: false },
+      include: [{ model: Analysis, where: { userId: uid }, attributes: [] }],
+    });
     const scoreDistribution = {
       excellent: await Analysis.count({ where: { ...userWhere, overallScore: { [Op.gte]: 90 } } }),
       good:      await Analysis.count({ where: { ...userWhere, overallScore: { [Op.gte]: 80, [Op.lt]: 90 } } }),
@@ -69,11 +77,15 @@ exports.getTrends = async (req, res) => {
 
 exports.getIssuesSummary = async (req, res) => {
   try {
+    const uid = req.userId;
+    const userAnalysisWhere = { userId: uid };
+    const issueInclude = [{ model: Analysis, where: userAnalysisWhere, attributes: [] }];
+
     const [critical, high, medium, low] = await Promise.all([
-      DataIssue.count({ where: { severity: 'Critical', resolved: false } }),
-      DataIssue.count({ where: { severity: 'High',     resolved: false } }),
-      DataIssue.count({ where: { severity: 'Medium',   resolved: false } }),
-      DataIssue.count({ where: { severity: 'Low',      resolved: false } }),
+      DataIssue.count({ where: { severity: 'Critical', resolved: false }, include: issueInclude }),
+      DataIssue.count({ where: { severity: 'High',     resolved: false }, include: issueInclude }),
+      DataIssue.count({ where: { severity: 'Medium',   resolved: false }, include: issueInclude }),
+      DataIssue.count({ where: { severity: 'Low',      resolved: false }, include: issueInclude }),
     ]);
 
     const rawIssues = await DataIssue.findAll({
@@ -83,7 +95,7 @@ exports.getIssuesSummary = async (req, res) => {
         ['createdAt', 'DESC'],
       ],
       limit: 50,
-      include: [{ model: Analysis, attributes: ['fileName', 'rowCount'] }],
+      include: [{ model: Analysis, where: userAnalysisWhere, attributes: ['fileName', 'rowCount'] }],
     });
 
     const issues = rawIssues.map(i => ({
@@ -100,6 +112,7 @@ exports.getIssuesSummary = async (req, res) => {
     }));
 
     const analyses = await Analysis.findAll({
+      where: userAnalysisWhere,
       order: [['createdAt', 'DESC']],
       limit: 10,
       include: [{ model: DataIssue, where: { resolved: false }, required: false }],
@@ -133,7 +146,7 @@ exports.getNotifications = async (req, res) => {
   try {
     const notifications = [];
 
-    const recentAnalyses = await Analysis.findAll({ order: [['createdAt', 'DESC']], limit: 10 });
+    const recentAnalyses = await Analysis.findAll({ where: { userId: req.userId }, order: [['createdAt', 'DESC']], limit: 10 });
     recentAnalyses.forEach(a => {
       const score = a.overallScore;
       const timeAgo = timeSince(a.createdAt);
@@ -145,9 +158,10 @@ exports.getNotifications = async (req, res) => {
         notifications.push({ id: `analysis-${a.id}`, type: 'alert',   title: 'Poor Data Quality',   message: `${a.fileName} scored ${score}% — immediate attention required.`,            time: timeAgo, createdAt: a.createdAt });
     });
 
+    const userAnalysisWhere = { userId: req.userId };
     const criticalIssues = await DataIssue.findAll({
       where: { severity: 'Critical', resolved: false },
-      include: [{ model: Analysis, attributes: ['fileName'] }],
+      include: [{ model: Analysis, where: userAnalysisWhere, attributes: ['fileName'] }],
       order: [['createdAt', 'DESC']], limit: 5,
     });
     criticalIssues.forEach(i => {
@@ -156,14 +170,14 @@ exports.getNotifications = async (req, res) => {
 
     const resolvedIssues = await DataIssue.findAll({
       where: { resolved: true },
-      include: [{ model: Analysis, attributes: ['fileName'] }],
+      include: [{ model: Analysis, where: userAnalysisWhere, attributes: ['fileName'] }],
       order: [['updatedAt', 'DESC']], limit: 5,
     });
     resolvedIssues.forEach(i => {
       notifications.push({ id: `resolved-${i.id}`, type: 'success', title: 'Issue Resolved', message: `${i.issueType} issue in ${i.Analysis?.fileName || 'a dataset'} has been resolved.`, time: timeSince(i.updatedAt), createdAt: i.updatedAt });
     });
 
-    const allAnalyses = await Analysis.findAll({ order: [['fileName', 'ASC'], ['createdAt', 'DESC']] });
+    const allAnalyses = await Analysis.findAll({ where: userAnalysisWhere, order: [['fileName', 'ASC'], ['createdAt', 'DESC']] });
     const byFile = {};
     allAnalyses.forEach(a => { if (!byFile[a.fileName]) byFile[a.fileName] = []; byFile[a.fileName].push(a); });
     Object.values(byFile).forEach(group => {

@@ -1,12 +1,110 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, Eye, AlertTriangle, X, FileText, ShieldCheck, RefreshCw, CheckCircle, XCircle, Mail, Bell, MessageCircle } from 'lucide-react';
+import { Trash2, Eye, AlertTriangle, X, FileText, ShieldCheck, RefreshCw, CheckCircle, XCircle, Mail, Bell, MessageCircle, Settings, Search, GitMerge } from 'lucide-react';
 import api from '../api';
 import { detectSensitiveCols } from '../DigiLockerVerifyModal';
 
 const FORM_BASE = 'https://docs.google.com/forms/d/e/1FAIpQLScmWJJaZOKINhwpdABnBfoo5Lx-fKVwbWBtr_g1DwaE-_b5eg/viewform';
 const ENTRY_MAP = { email: 'entry.541960522', rollnumber: 'entry.655531758', name: 'entry.103162702', phonenumber: 'entry.69552159', aadhar: 'entry.1203760852' };
 function normCol(str) { return String(str).toLowerCase().replace(/[\s_\-]+/g, '').replace(/number$/, ''); }
+
+function formatCellValue(val) {
+  if (val === null || val === undefined || val === '') return val;
+  const s = String(val).trim();
+  // Convert scientific notation like 1.12233E+11 to full integer string
+  if (/^-?\d+(\.\d+)?[eE][+\-]?\d+$/.test(s)) {
+    const n = Number(s);
+    if (!isNaN(n) && isFinite(n)) return Number.isInteger(n) ? String(n) : n.toFixed(0);
+  }
+  return val;
+}
+const BANK_ALIASES    = ['bank', 'bank_name', 'bankname', 'bank_nm'];
+const ACCOUNT_ALIASES = ['account', 'account_number', 'acc_no', 'account_no', 'acct', 'bank_account', 'accountnumber'];
+const BANK_LENGTH_MAP_FE = [
+  { match: /sbi|state bank of india/, range: [11,17], label: 'SBI' },
+  { match: /pnb|punjab national/, range: [16,16], label: 'PNB' },
+  { match: /bank of baroda|\bbob\b/, range: [14,14], label: 'Bank of Baroda' },
+  { match: /canara/, range: [13,13], label: 'Canara Bank' },
+  { match: /union bank/, range: [15,15], label: 'Union Bank' },
+  { match: /bank of india|\bboi\b/, range: [15,15], label: 'Bank of India' },
+  { match: /central bank/, range: [10,10], label: 'Central Bank' },
+  { match: /indian overseas|iob/, range: [15,15], label: 'IOB' },
+  { match: /indian bank/, range: [15,15], label: 'Indian Bank' },
+  { match: /uco bank/, range: [15,15], label: 'UCO Bank' },
+  { match: /bank of maharashtra|bom/, range: [15,15], label: 'Bank of Maharashtra' },
+  { match: /punjab.*sind|psb/, range: [16,16], label: 'Punjab & Sind Bank' },
+  { match: /hdfc/, range: [14,14], label: 'HDFC Bank' },
+  { match: /icici/, range: [12,12], label: 'ICICI Bank' },
+  { match: /axis/, range: [15,15], label: 'Axis Bank' },
+  { match: /kotak/, range: [14,14], label: 'Kotak Bank' },
+  { match: /yes bank/, range: [15,15], label: 'Yes Bank' },
+  { match: /idbi/, range: [16,16], label: 'IDBI Bank' },
+  { match: /indusind/, range: [15,15], label: 'IndusInd Bank' },
+  { match: /federal bank/, range: [14,14], label: 'Federal Bank' },
+  { match: /south indian bank|sib/, range: [16,16], label: 'South Indian Bank' },
+  { match: /karnataka bank|kbl/, range: [13,13], label: 'Karnataka Bank' },
+  { match: /karur vysya|kvb/, range: [16,16], label: 'KVB' },
+  { match: /city union|cub/, range: [15,15], label: 'City Union Bank' },
+  { match: /tamilnad mercantile|tmb/, range: [15,15], label: 'TMB' },
+  { match: /dhanlaxmi/, range: [14,14], label: 'Dhanlaxmi Bank' },
+  { match: /dcb|development credit/, range: [13,13], label: 'DCB Bank' },
+  { match: /rbl|ratnakar/, range: [14,14], label: 'RBL Bank' },
+  { match: /csb|catholic syrian/, range: [13,13], label: 'CSB Bank' },
+  { match: /lakshmi vilas|lvb/, range: [15,15], label: 'Lakshmi Vilas Bank' },
+  { match: /nainital/, range: [11,11], label: 'Nainital Bank' },
+  { match: /jammu.*kashmir|j&k bank/, range: [11,11], label: 'J&K Bank' },
+  { match: /bandhan/, range: [17,17], label: 'Bandhan Bank' },
+  { match: /idfc/, range: [12,12], label: 'IDFC First Bank' },
+  { match: /au small finance|au sfb/, range: [14,14], label: 'AU Small Finance Bank' },
+  { match: /equitas/, range: [15,15], label: 'Equitas SFB' },
+  { match: /ujjivan/, range: [15,15], label: 'Ujjivan SFB' },
+  { match: /suryoday/, range: [14,14], label: 'Suryoday SFB' },
+  { match: /esaf/, range: [14,14], label: 'ESAF SFB' },
+  { match: /fincare/, range: [14,14], label: 'Fincare SFB' },
+  { match: /jana small|jana sfb/, range: [16,16], label: 'Jana SFB' },
+  { match: /north east small|ne sfb/, range: [14,14], label: 'NE SFB' },
+  { match: /shivalik/, range: [14,14], label: 'Shivalik SFB' },
+  { match: /unity small|unity sfb/, range: [14,14], label: 'Unity SFB' },
+  { match: /paytm payments/, range: [17,17], label: 'Paytm Payments Bank' },
+  { match: /airtel payments/, range: [11,11], label: 'Airtel Payments Bank' },
+  { match: /fino payments/, range: [16,16], label: 'Fino Payments Bank' },
+  { match: /india post payments|ippb/, range: [11,11], label: 'IPPB' },
+  { match: /jio payments/, range: [12,12], label: 'Jio Payments Bank' },
+  { match: /citibank|citi/, range: [10,10], label: 'Citibank' },
+  { match: /hsbc/, range: [12,12], label: 'HSBC' },
+  { match: /standard chartered|scb/, range: [11,11], label: 'Standard Chartered' },
+  { match: /deutsche/, range: [10,10], label: 'Deutsche Bank' },
+  { match: /dbs/, range: [10,10], label: 'DBS Bank' },
+  { match: /barclays/, range: [11,11], label: 'Barclays' },
+  { match: /bnp paribas/, range: [11,11], label: 'BNP Paribas' },
+  { match: /saraswat/, range: [14,14], label: 'Saraswat Bank' },
+  { match: /cosmos/, range: [14,14], label: 'Cosmos Bank' },
+  { match: /shamrao vithal|svc/, range: [14,14], label: 'SVC Bank' },
+  { match: /abhyudaya/, range: [13,13], label: 'Abhyudaya Bank' },
+];
+
+function getBankAccountTooltip(row, colKey) {
+  const colNorm = colKey.toLowerCase().replace(/[\s_-]+/g, '');
+  const isAccCol = ACCOUNT_ALIASES.some(a => colNorm.includes(a.replace(/[\s_-]+/g, '')));
+  if (!isAccCol) return null;
+  const bankKey = Object.keys(row).find(k =>
+    BANK_ALIASES.some(a => k.toLowerCase().replace(/[\s_-]+/g, '').includes(a.replace(/[\s_-]+/g, '')))
+  );
+  if (!bankKey) return null;
+  const bankVal = String(row[bankKey] || '').trim();
+  if (!bankVal) return null;
+  const digits = String(row[colKey] || '').trim().replace(/[\s-]/g, '').replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const len = digits.length;
+  const matched = BANK_LENGTH_MAP_FE.find(e => e.match.test(bankVal.toLowerCase()));
+  if (!matched) return `${bankVal} — no standard on record`;
+  const [min, max] = matched.range;
+  const expected = min === max ? `${min} digits` : `${min}-${max} digits`;
+  return len >= min && len <= max
+    ? `Matches ${matched.label} standard (${expected})`
+    : `${matched.label} needs ${expected}, got ${len} digits`;
+}
+
 function buildFormLink(row) {
   const params = new URLSearchParams({ usp: 'pp_url' });
   for (const [col, val] of Object.entries(row)) {
@@ -70,6 +168,9 @@ function AnalysisHistory() {
   const [viewPage, setViewPage] = useState(0);
 
   const [sensitiveCols, setSensitiveCols] = useState({ aadhaar: [], pan: [] });
+  const [nullableCols, setNullableCols] = useState([]);
+  const [showNullableModal, setShowNullableModal] = useState(false);
+  const [nullableInput, setNullableInput] = useState('');
   const [rowVerify, setRowVerify]   = useState({});
   const [verifyingAll, setVerifyingAll] = useState(false);
   const abortControllersRef = React.useRef([]);
@@ -91,6 +192,10 @@ function AnalysisHistory() {
   const [emailResult, setEmailResult] = useState(null);
   const [waSending, setWaSending] = useState(false);
   const [waResult, setWaResult] = useState(null);
+  const [relModal, setRelModal]       = useState(false);
+  const [relLoading, setRelLoading]   = useState(false);
+  const [relationships, setRelationships] = useState([]);
+  const [linkedDatasets, setLinkedDatasets] = useState([]); // [{ relIdx, joinColA, joinColB, datasetBId, datasetBName, datasetBRows }]
 
   const sendWhatsApp = async (phones) => {
     setWaSending(true);
@@ -126,6 +231,7 @@ function AnalysisHistory() {
     return () => document.removeEventListener('click', handler);
   }, [notifyDropdown, notifyAllDropdown]);
   const [rowFilter, setRowFilter] = useState('all'); // 'all' | 'problematic' | 'not_verified'
+  const [rowSearch, setRowSearch] = useState('');
 
   const previewFolder = async () => {
     if (!driveFolderId) return;
@@ -204,11 +310,15 @@ function AnalysisHistory() {
     abortControllersRef.current = [];
     setVerifyingAll(false);
     currentAnalysisIdRef.current = id;
-    const res = await api.getAnalysisById(id);
+    const [res, settings] = await Promise.all([
+      api.getAnalysisById(id),
+      api.getSettings().catch(() => ({})),
+    ]);
     setViewData(res);
+    setNullableCols(settings?.nullableColumns || []);
+    setRowSearch('');
     const cols = detectSensitiveCols(res?.rawData || []);
     setSensitiveCols(cols);
-    // Restore previously saved verification status (keys come back as strings from JSON)
     if (res?.verificationStatus && Object.keys(res.verificationStatus).length > 0) {
       const normalized = Object.fromEntries(
         Object.entries(res.verificationStatus).map(([k, v]) => [Number(k), v])
@@ -237,6 +347,66 @@ function AnalysisHistory() {
     setConfirmAll(false);
     if (res.success) setHistory([]);
     else alert('Delete failed: ' + (res.error || 'Unknown error'));
+  };
+
+  // Lookup contact info from linked datasets when current row is missing phone/email
+  const lookupFromLinked = (row) => {
+    for (const link of linkedDatasets) {
+      // Case-insensitive column key lookup for joinColA
+      const rowKeyA = Object.keys(row).find(
+        k => k.toLowerCase().replace(/[\s_-]+/g, '') === link.joinColA.toLowerCase().replace(/[\s_-]+/g, '')
+      );
+      if (!rowKeyA) continue;
+      const myVal = String(row[rowKeyA] || '').trim().toLowerCase();
+      if (!myVal) continue;
+
+      // Case-insensitive column key lookup for joinColB in linked dataset rows
+      const matchedRow = link.datasetBRows.find(r => {
+        const rowKeyB = Object.keys(r).find(
+          k => k.toLowerCase().replace(/[\s_-]+/g, '') === link.joinColB.toLowerCase().replace(/[\s_-]+/g, '')
+        );
+        return rowKeyB && String(r[rowKeyB] || '').trim().toLowerCase() === myVal;
+      });
+      if (!matchedRow) continue;
+
+      const phoneKey = Object.keys(matchedRow).find(k => k.toLowerCase().includes('phone') || k.toLowerCase().includes('mobile'));
+      const emailKey = Object.keys(matchedRow).find(k => k.toLowerCase().includes('email'));
+      const nameKey  = Object.keys(matchedRow).find(k => k.toLowerCase().includes('name'));
+      const phone = phoneKey ? String(matchedRow[phoneKey] || '').trim() : '';
+      const email = emailKey ? String(matchedRow[emailKey] || '').trim() : '';
+      const name  = nameKey  ? String(matchedRow[nameKey]  || '').trim() : '';
+      if (phone || email) {
+        return { phone, email, name, source: link.datasetBName };
+      }
+    }
+    return null;
+  };
+
+  const handleFindRelationships = async () => {
+    setRelModal(true);
+    setRelLoading(true);
+    try {
+      const data = await api.findRelationships();
+      setRelationships(data.relationships || []);
+    } catch { setRelationships([]); }
+    setRelLoading(false);
+  };
+
+  // Load saved relationships when modal opens
+  const handleOpenRelModal = async () => {
+    setRelModal(true);
+    setRelLoading(true);
+    try {
+      const data = await api.getSavedRelationships();
+      setRelationships(Array.isArray(data) ? data : []);
+    } catch { setRelationships([]); }
+    setRelLoading(false);
+  };
+
+  const handleDeleteRelationship = async (id) => {
+    await api.deleteRelationship(id);
+    setRelationships(prev => prev.filter(r => r.id !== id));
+    setLinkedDatasets(prev => prev.filter(l => l.relId !== id));
   };
 
   const exportCsv = () => {
@@ -350,7 +520,9 @@ function AnalysisHistory() {
                 const isValidDate = v => { const s = String(v).trim(); const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) return false; const dt = new Date(+m[1], +m[2]-1, +m[3]); return dt.getFullYear()===+m[1] && dt.getMonth()===+m[2]-1 && dt.getDate()===+m[3]; };
                 const seen = new Map(); const dupRows = new Set();
                 rows.forEach((row, idx) => { const k = JSON.stringify(row); if (seen.has(k)) { dupRows.add(idx); dupRows.add(seen.get(k)); } else seen.set(k, idx); });
+                const nullableSet = new Set(nullableCols.map(c => c.toLowerCase()));
                 const isCellProblem = (row, col) => {
+                  if (nullableSet.has(col.toLowerCase())) return false;
                   const val = row[col];
                   const colL = col.toLowerCase();
                   if (isMissing(val)) return true;
@@ -365,11 +537,24 @@ function AnalysisHistory() {
                   const phoneKey = Object.keys(row).find(k => k.toLowerCase().includes('phone') || k.toLowerCase().includes('mobile'));
                   const emailKey = Object.keys(row).find(k => k.toLowerCase().includes('email') || k.toLowerCase().includes('mail'));
                   const nameKey  = Object.keys(row).find(k => k.toLowerCase().includes('name'));
-                  return {
+                  const direct = {
                     phone: phoneKey ? String(row[phoneKey] || '').trim() : '',
                     email: emailKey ? String(row[emailKey] || '').trim() : '',
-                    name:  nameKey  ? String(row[nameKey]  || '').trim() : 'Student',
+                    name:  nameKey  ? String(row[nameKey]  || '').trim() : '',
                   };
+                  // Always try linked datasets if phone or email is missing
+                  if (!direct.phone || !direct.email) {
+                    const linked = lookupFromLinked(row);
+                    if (linked) {
+                      return {
+                        phone: direct.phone || linked.phone,
+                        email: direct.email || linked.email,
+                        name:  direct.name  || linked.name || 'Patient',
+                        linkedSource: linked.source,
+                      };
+                    }
+                  }
+                  return { ...direct, name: direct.name || 'Patient' };
                 };
                 // Use backend-stored problemRowPct for display consistency
                 const problemRowPct = viewData.problemRowPct ?? Math.round((rows.filter((r,i) => isRowProblem(r,i)).length / rows.length) * 100);
@@ -377,11 +562,17 @@ function AnalysisHistory() {
                 const pageSize = 20;
                 // Apply filter — keep original indices as globalIdx
                 const indexedRows = rows.map((row, idx) => ({ row, idx }));
-                const filteredRows = rowFilter === 'problematic'
-                  ? indexedRows.filter(({ row, idx }) => isRowProblem(row, idx))
-                  : rowFilter === 'not_verified'
-                  ? indexedRows.filter(({ idx }) => rowVerify[idx]?.status === 'Not Verified' || rowVerify[idx]?.status === 'error')
-                  : indexedRows;
+                const searchTerm = rowSearch.trim().toLowerCase();
+                const filteredRows = indexedRows
+                  .filter(({ row, idx }) => {
+                    if (rowFilter === 'problematic') return isRowProblem(row, idx);
+                    if (rowFilter === 'not_verified') return rowVerify[idx]?.status === 'Not Verified' || rowVerify[idx]?.status === 'error';
+                    return true;
+                  })
+                  .filter(({ row }) => {
+                    if (!searchTerm) return true;
+                    return Object.values(row).some(v => String(v ?? '').toLowerCase().includes(searchTerm));
+                  });
                 const totalPages = Math.ceil(filteredRows.length / pageSize);
                 const pageRows = filteredRows.slice(viewPage * pageSize, (viewPage + 1) * pageSize);
                 return (
@@ -406,6 +597,13 @@ function AnalysisHistory() {
                             </p>
                           </div>
                         )}
+                        <button
+                          onClick={() => { setNullableInput(nullableCols.join(', ')); setShowNullableModal(true); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}
+                          title="Set columns that are allowed to be empty">
+                          <Settings size={11} /> Nullable Cols {nullableCols.length > 0 && `(${nullableCols.length})`}
+                        </button>
                         <button onClick={() => { stopVerifyAll(); setViewData(null); setViewPage(0); setRowVerify({}); }}
                           className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                           <X size={16} className="text-gray-500" />
@@ -494,6 +692,28 @@ function AnalysisHistory() {
                       )}
                     </AnimatePresence>
 
+                    {/* Search bar */}
+                    {rows.length > 0 && (
+                      <div className="px-6 py-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                        <div className="relative">
+                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            value={rowSearch}
+                            onChange={e => { setRowSearch(e.target.value); setViewPage(0); }}
+                            placeholder="Search across all columns…"
+                            className="w-full text-xs rounded-lg pl-8 pr-3 py-2 outline-none"
+                            style={{ background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', color: '#374151' }}
+                          />
+                          {rowSearch && (
+                            <button onClick={() => { setRowSearch(''); setViewPage(0); }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Filter pills */}
                     {rows.length > 0 && (
                       <div className="flex items-center gap-2 px-6 py-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0" style={{ background: 'rgba(0,0,0,0.01)' }}>
@@ -518,17 +738,16 @@ function AnalysisHistory() {
                         {/* Notify All */}
                         {(() => {
                           const notifiableRows = rows
-                            .map((row, idx) => ({ row, idx }))
-                            .filter(({ row, idx }) => {
+                            .map((row, idx) => ({ row, idx, contact: getContact(row) }))
+                            .filter(({ row, idx, contact }) => {
                               const vr = rowVerify[idx];
                               const isIssue = isRowProblem(row, idx) || vr?.status === 'Not Verified' || vr?.status === 'error';
-                              const { phone, email } = getContact(row);
-                              return isIssue && (phone || email);
+                              return isIssue && (contact.phone || contact.email);
                             });
                           if (notifiableRows.length === 0) return null;
-                          const allEmails = [...new Set(notifiableRows.map(({ row }) => getContact(row).email).filter(Boolean))];
-                          const allPhones = [...new Set(notifiableRows.map(({ row }) => getContact(row).phone).filter(Boolean))];
-                          const noEmailRows = notifiableRows.filter(({ row }) => !getContact(row).email && getContact(row).phone);
+                          const allEmails = [...new Set(notifiableRows.map(({ contact }) => contact.email).filter(Boolean))];
+                          const allPhones = [...new Set(notifiableRows.map(({ contact }) => contact.phone).filter(Boolean))];
+                          const linkedCount = notifiableRows.filter(({ contact }) => contact.linkedSource).length;
                           return (
                             <div className="relative ml-auto">
                               <button
@@ -545,8 +764,10 @@ function AnalysisHistory() {
                                   style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.1)', minWidth: 240 }}>
                                   <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)', background: 'rgba(245,158,11,0.04)' }}>
                                     <p className="text-xs font-semibold" style={{ color: '#f59e0b' }}>Notify All ({notifiableRows.length} rows)</p>
-                                    {noEmailRows.length > 0 && (
-                                      <p className="text-xs mt-0.5" style={{ color: '#ef4444' }}>{noEmailRows.length} missing email — WhatsApp available</p>
+                                    {linkedCount > 0 && (
+                                      <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: '#6366f1' }}>
+                                        <GitMerge size={9} /> {linkedCount} contact{linkedCount !== 1 ? 's' : ''} from linked dataset
+                                      </p>
                                     )}
                                   </div>
                                   {allPhones.length > 0 && (
@@ -554,11 +775,10 @@ function AnalysisHistory() {
                                       onClick={async () => {
                                         setNotifyAllDropdown(false);
                                         const payload = notifiableRows
-                                          .filter(({ row }) => getContact(row).phone)
-                                          .map(({ row }) => {
-                                            const { phone: p, name: n } = getContact(row);
+                                          .filter(({ contact }) => contact.phone)
+                                          .map(({ row, contact }) => {
                                             const link = buildFormLink(row);
-                                            return { phone: p, message: `Hi ${n}, your record has issues. Please update your details here: ${link}` };
+                                            return { phone: contact.phone, message: `Hi ${contact.name}, your record has issues. Please update your details here: ${link}` };
                                           });
                                         await sendWhatsApp(payload);
                                       }}
@@ -574,9 +794,8 @@ function AnalysisHistory() {
                                       onClick={async () => {
                                         setNotifyAllDropdown(false);
                                         const rowIndicesMap = {};
-                                        notifiableRows.forEach(({ row, idx }) => {
-                                          const { email } = getContact(row);
-                                          if (email) rowIndicesMap[email.trim()] = idx;
+                                        notifiableRows.forEach(({ contact, idx }) => {
+                                          if (contact.email) rowIndicesMap[contact.email.trim()] = idx;
                                         });
                                         await sendEmailAndSync(allEmails, viewData?.id, rowIndicesMap);
                                       }}
@@ -594,17 +813,15 @@ function AnalysisHistory() {
                                         onClick={async () => {
                                           setNotifyAllDropdown(false);
                                           const payload = notifiableRows
-                                            .filter(({ row }) => getContact(row).phone)
-                                            .map(({ row }) => {
-                                              const { phone: p, name: n } = getContact(row);
+                                            .filter(({ contact }) => contact.phone)
+                                            .map(({ row, contact }) => {
                                               const link = buildFormLink(row);
-                                              return { phone: p, message: `Hi ${n}, your record has issues. Please update your details here: ${link}` };
+                                              return { phone: contact.phone, message: `Hi ${contact.name}, your record has issues. Please update your details here: ${link}` };
                                             });
                                           await sendWhatsApp(payload);
                                           const rowIndicesMap = {};
-                                          notifiableRows.forEach(({ row, idx }) => {
-                                            const { email } = getContact(row);
-                                            if (email) rowIndicesMap[email.trim()] = idx;
+                                          notifiableRows.forEach(({ contact, idx }) => {
+                                            if (contact.email) rowIndicesMap[contact.email.trim()] = idx;
                                           });
                                           await sendEmailAndSync(allEmails, viewData?.id, rowIndicesMap);
                                         }}
@@ -655,16 +872,31 @@ function AnalysisHistory() {
                                 {cols.map(col => {
                                   const val = row[col];
                                   const cellIssue = isCellProblem(row, col);
+                                  const bankTip = getBankAccountTooltip(row, col);
+                                  const isMatch = bankTip && bankTip.startsWith('Matches');
                                   return (
-                                  <td key={col} className={`px-4 py-2.5 whitespace-nowrap max-w-[180px] truncate text-sm font-medium ${cellIssue ? 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/40' : 'text-gray-700 dark:text-gray-300'}`}>
-                                    {val ?? '—'}
+                                  <td key={col}
+                                    title={bankTip || undefined}
+                                    className={`px-4 py-2.5 whitespace-nowrap max-w-[180px] truncate text-sm font-medium ${
+                                      cellIssue ? 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/40' :
+                                      bankTip && !isMatch ? 'text-orange-500 bg-orange-50 dark:bg-orange-900/20' :
+                                      'text-gray-700 dark:text-gray-300'
+                                    }`}
+                                    style={bankTip ? { cursor: 'help' } : undefined}>
+                                    {formatCellValue(val) ?? '—'}
+                                    {bankTip && (
+                                      <span className="ml-1 text-xs" style={{ color: isMatch ? '#10b981' : '#f97316' }}>
+                                        {isMatch ? '✓' : '!'}
+                                      </span>
+                                    )}
                                   </td>
                                   );
                                 })}
                                 {/* Notify cell */}
                                 {(() => {
-                                  const showNotify = rowHasIssue || vr?.status === 'Not Verified' || vr?.status === 'error';
-                                  const { phone, email, name } = getContact(row);
+                                  const contact = getContact(row);
+                                  const { phone, email, name, linkedSource } = contact;
+                                  const showNotify = (rowHasIssue || vr?.status === 'Not Verified' || vr?.status === 'error') && (phone || email);
                                   const missingCols = cols.filter(col => isMissing(row[col]));
                                   const invalidCols = cols.filter(col => !isMissing(row[col]) && isCellProblem(row, col));
                                   const isVerifyFail = vr?.status === 'Not Verified' || vr?.status === 'error';
@@ -679,30 +911,30 @@ function AnalysisHistory() {
                                     smsMsg = `Hi ${name}, the following data is incomplete in your record - ${parts.join(' | ')}. Please update at the earliest.`;
                                   }
 
-                                  const subject = isVerifyFail ? 'Document Verification Failed' : `Incomplete Record: Action Required`;
-                                  const emailBody = isVerifyFail
-                                    ? `Dear ${name},\n\nYour document verification has failed. Please submit the correct documents at the earliest.\n\nRegards`
-                                    : `Dear ${name},\n\nThe following data is incomplete in your record:\n${missingCols.length > 0 ? `\nMissing fields: ${missingCols.join(', ')}` : ''}${invalidCols.length > 0 ? `\nInvalid fields: ${invalidCols.join(', ')}` : ''}\n\nPlease update your information at the earliest.\n\nRegards`;
-
                                   const formLink = buildFormLink(row);
                                   const waMsg = `${smsMsg}\n\nPlease update your details here: ${formLink}`;
 
                                   return (
                                     <td className="px-4 py-2.5 whitespace-nowrap">
-                                      {showNotify && (phone || email) ? (
+                                      {showNotify ? (
                                         <div className="relative">
                                           <button
                                             onClick={(e) => { e.stopPropagation(); setNotifyDropdown(notifyDropdown === globalIdx ? null : globalIdx); }}
                                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold"
-                                            style={{ background: 'rgba(245,158,11,0.08)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}>
-                                            <Bell size={10} /> Notify
+                                            style={{ background: linkedSource ? 'rgba(99,102,241,0.1)' : 'rgba(245,158,11,0.08)', color: linkedSource ? '#6366f1' : '#f59e0b', border: `1px solid ${linkedSource ? 'rgba(99,102,241,0.25)' : 'rgba(245,158,11,0.25)'}` }}>
+                                            <Bell size={10} /> Notify {linkedSource && <GitMerge size={9} />}
                                           </button>
                                           {notifyDropdown === globalIdx && (
                                             <div className="absolute left-0 top-7 z-50 rounded-xl shadow-xl overflow-hidden"
-                                              style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.1)', minWidth: 200 }}>
-                                              <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)', background: 'rgba(245,158,11,0.04)' }}>
-                                                <p className="text-xs font-semibold" style={{ color: '#f59e0b' }}>Send Notification</p>
-                                                {!email && <p className="text-xs mt-0.5" style={{ color: '#ef4444' }}>No email — use WhatsApp</p>}
+                                              style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.1)', minWidth: 220 }}>
+                                              <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)', background: linkedSource ? 'rgba(99,102,241,0.04)' : 'rgba(245,158,11,0.04)' }}>
+                                                <p className="text-xs font-semibold" style={{ color: linkedSource ? '#6366f1' : '#f59e0b' }}>Send Notification</p>
+                                                {linkedSource && (
+                                                  <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: '#6366f1' }}>
+                                                    <GitMerge size={9} /> Contact from: <span className="font-semibold">{linkedSource}</span>
+                                                  </p>
+                                                )}
+                                                {!email && !linkedSource && <p className="text-xs mt-0.5" style={{ color: '#ef4444' }}>No email — use WhatsApp</p>}
                                               </div>
                                               {phone && (
                                                 <button
@@ -827,6 +1059,69 @@ function AnalysisHistory() {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Nullable Columns Modal */}
+      <AnimatePresence>
+        {showNullableModal && viewData && (() => {
+          const rows = viewData.rawData || [];
+          const allCols = rows.length > 0 ? Object.keys(rows[0]) : [];
+          const currentSet = new Set(nullableCols.map(c => c.toLowerCase()));
+          const toggle = (col) => {
+            const lower = col.toLowerCase();
+            const next = currentSet.has(lower)
+              ? nullableCols.filter(c => c.toLowerCase() !== lower)
+              : [...nullableCols, col];
+            setNullableCols(next);
+            api.getSettings().then(s => api.updateSettings({ ...s, nullableColumns: next })).catch(() => {});
+          };
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+              style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+              onClick={() => setShowNullableModal(false)}>
+              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Nullable Columns</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Checked columns won't count as problematic when empty</p>
+                  </div>
+                  <button onClick={() => setShowNullableModal(false)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <X size={14} className="text-gray-500" />
+                  </button>
+                </div>
+                <div className="py-2 max-h-72 overflow-y-auto">
+                  {allCols.length === 0
+                    ? <p className="text-xs text-gray-400 px-5 py-4">No columns found in this dataset.</p>
+                    : allCols.map(col => {
+                        const isNullable = currentSet.has(col.toLowerCase());
+                        return (
+                          <button key={col} onClick={() => toggle(col)}
+                            className="w-full flex items-center gap-3 px-5 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                            <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                              style={{ background: isNullable ? '#6366f1' : 'transparent', border: `2px solid ${isNullable ? '#6366f1' : '#d1d5db'}` }}>
+                              {isNullable && <CheckCircle size={10} className="text-white" />}
+                            </div>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{col}</span>
+                            {isNullable && (
+                              <span className="ml-auto text-xs px-1.5 py-0.5 rounded-md"
+                                style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}>nullable</span>
+                            )}
+                          </button>
+                        );
+                      })
+                  }
+                </div>
+                <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700">
+                  <p className="text-xs text-gray-400">{nullableCols.length} column{nullableCols.length !== 1 ? 's' : ''} marked nullable · saved to your settings</p>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
       {/* Unverified Reason Modal */}
       <AnimatePresence>
         {unverifiedModal && (() => {
@@ -983,6 +1278,186 @@ function AnalysisHistory() {
 
       {/* DigiLocker Verify Modal — removed, verification is now inline in the data table */}
 
+      {/* Relationships Modal */}
+      <AnimatePresence>
+        {relModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setRelModal(false)}>
+            <motion.div initial={{ scale: 0.93, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.93, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                    <GitMerge size={16} style={{ color: '#6366f1' }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Dataset Relationships</p>
+                    <p className="text-xs text-gray-400">Datasets that share common key columns and can be merged</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={handleFindRelationships} disabled={relLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                    style={{ background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}>
+                    <RefreshCw size={11} className={relLoading ? 'animate-spin' : ''} /> Scan
+                  </button>
+                  <button onClick={() => setRelModal(false)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <X size={16} className="text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="overflow-y-auto flex-1 p-6 space-y-4">
+                {/* Active links banner */}
+                {linkedDatasets.length > 0 && (
+                  <div className="rounded-xl p-3 space-y-1.5" style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                    <p className="text-xs font-bold" style={{ color: '#10b981' }}>Active Links ({linkedDatasets.length})</p>
+                    {linkedDatasets.map((lnk, li) => (
+                      <div key={li} className="flex items-center gap-2 text-xs">
+                        <CheckCircle size={11} style={{ color: '#10b981' }} />
+                        <span className="text-gray-600 dark:text-gray-300 flex-1">
+                          <span className="font-mono font-semibold">{lnk.joinColA}</span> → {lnk.datasetBName} · <span className="font-mono font-semibold">{lnk.joinColB}</span>
+                        </span>
+                        <button onClick={() => setLinkedDatasets(prev => prev.filter((_, i) => i !== li))}
+                          className="text-gray-400 hover:text-red-400">
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {relLoading ? (
+                  <div className="flex items-center justify-center py-12 gap-3">
+                    <RefreshCw size={18} className="animate-spin text-indigo-500" />
+                    <span className="text-sm text-gray-400">Analysing column relationships…</span>
+                  </div>
+                ) : relationships.length === 0 ? (
+                  <div className="text-center py-12">
+                    <GitMerge size={32} className="mx-auto mb-3 text-gray-300" />
+                    <p className="text-sm font-semibold text-gray-500">No saved relationships</p>
+                    <p className="text-xs text-gray-400 mt-1">Click <strong>Scan</strong> to detect relationships across your datasets</p>
+                  </div>
+                ) : (
+                  relationships.map((rel, i) => {
+                    const confColor = rel.confidence === 'High' ? '#10b981' : rel.confidence === 'Medium' ? '#f59e0b' : '#6b7280';
+                    const confBg    = rel.confidence === 'High' ? 'rgba(16,185,129,0.08)' : rel.confidence === 'Medium' ? 'rgba(245,158,11,0.08)' : 'rgba(0,0,0,0.04)';
+                    const bestMatch = rel.matches[0];
+
+                    // Check if this relationship (either direction) is already linked
+                    const isLinkedAtoB = linkedDatasets.some(l => l.datasetBId === rel.datasetB.id && l.joinColA === bestMatch.colA && l.joinColB === bestMatch.colB);
+                    const isLinkedBtoA = linkedDatasets.some(l => l.datasetBId === rel.datasetA.id && l.joinColA === bestMatch.colB && l.joinColB === bestMatch.colA);
+
+                    const handleLink = async (direction) => {
+                      const isAtoB = direction === 'AtoB';
+                      const sourceId   = isAtoB ? rel.datasetA.id : rel.datasetB.id;
+                      const targetId   = isAtoB ? rel.datasetB.id : rel.datasetA.id;
+                      const targetName = isAtoB ? rel.datasetB.fileName : rel.datasetA.fileName;
+                      const joinColA   = isAtoB ? bestMatch.colA : bestMatch.colB;
+                      const joinColB   = isAtoB ? bestMatch.colB : bestMatch.colA;
+                      // Fetch target dataset rows
+                      try {
+                        const data = await api.getAnalysisById(targetId);
+                        setLinkedDatasets(prev => [
+                          ...prev.filter(l => !(l.datasetBId === targetId && l.joinColA === joinColA)),
+                          { relIdx: i, joinColA, joinColB, datasetBId: targetId, datasetBName: targetName, datasetBRows: data.rawData || [] },
+                        ]);
+                      } catch {}
+                    };
+
+                    return (
+                      <div key={i} className="rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
+                        {/* Datasets row */}
+                        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-700/40">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate">{rel.datasetA.fileName}</p>
+                            <p className="text-xs text-gray-400">#{rel.datasetA.id}</p>
+                          </div>
+                          <div className="flex flex-col items-center gap-0.5 flex-shrink-0">
+                            <GitMerge size={14} style={{ color: '#6366f1' }} />
+                            <span className="text-xs font-bold" style={{ color: '#6366f1' }}>{rel.suggestedJoin}</span>
+                          </div>
+                          <div className="flex-1 min-w-0 text-right">
+                            <p className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate">{rel.datasetB.fileName}</p>
+                            <p className="text-xs text-gray-400">#{rel.datasetB.id}</p>
+                          </div>
+                          <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{ background: confBg, color: confColor }}>
+                            {rel.confidence}
+                          </span>
+                          <button onClick={() => handleDeleteRelationship(rel.id)}
+                            className="ml-1 w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 flex-shrink-0"
+                            title="Remove this relationship">
+                            <Trash2 size={11} className="text-gray-400 hover:text-red-400" />
+                          </button>
+                        </div>
+
+                        {/* Matching columns */}
+                        <div className="px-4 py-3 space-y-2">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Matching Columns</p>
+                          {rel.matches.slice(0, 4).map((m, mi) => (
+                            <div key={mi} className="flex items-center gap-2 text-xs">
+                              <span className="font-mono px-2 py-0.5 rounded" style={{ background: 'rgba(99,102,241,0.08)', color: '#6366f1' }}>{m.colA}</span>
+                              <span className="text-gray-400">=</span>
+                              <span className="font-mono px-2 py-0.5 rounded" style={{ background: 'rgba(99,102,241,0.08)', color: '#6366f1' }}>{m.colB}</span>
+                              <span className="ml-auto font-semibold" style={{ color: m.overlapPct >= 80 ? '#10b981' : m.overlapPct >= 40 ? '#f59e0b' : '#6b7280' }}>
+                                {m.overlapPct}% overlap
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* SQL hint + Link buttons */}
+                        <div className="px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 flex items-center gap-3" style={{ background: 'rgba(0,0,0,0.02)' }}>
+                          <p className="text-xs font-mono text-gray-400 truncate flex-1">
+                            SELECT * FROM <span className="text-indigo-500">A</span> {rel.suggestedJoin} <span className="text-indigo-500">B</span> ON A.<span className="text-green-500">{bestMatch.colA}</span> = B.<span className="text-green-500">{bestMatch.colB}</span>
+                          </p>
+                          <div className="flex gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => handleLink('AtoB')}
+                              title={`Fetch missing contact from "${rel.datasetB.fileName}" when viewing "${rel.datasetA.fileName}"`}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all"
+                              style={isLinkedAtoB
+                                ? { background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }
+                                : { background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}>
+                              {isLinkedAtoB ? <CheckCircle size={10} /> : <GitMerge size={10} />}
+                              {isLinkedAtoB ? 'Linked' : `Link A→B`}
+                            </button>
+                            <button
+                              onClick={() => handleLink('BtoA')}
+                              title={`Fetch missing contact from "${rel.datasetA.fileName}" when viewing "${rel.datasetB.fileName}"`}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all"
+                              style={isLinkedBtoA
+                                ? { background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }
+                                : { background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}>
+                              {isLinkedBtoA ? <CheckCircle size={10} /> : <GitMerge size={10} />}
+                              {isLinkedBtoA ? 'Linked' : `Link B→A`}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {!relLoading && relationships.length > 0 && (
+                <div className="px-6 py-3 border-t border-gray-100 dark:border-gray-700 flex-shrink-0">
+                  <p className="text-xs text-gray-400">{relationships.length} relationship{relationships.length !== 1 ? 's' : ''} found across {history.length} datasets</p>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Analysis History</h2>
@@ -990,6 +1465,11 @@ function AnalysisHistory() {
         </div>
         {history.length > 0 && (
           <div className="flex gap-2">
+            <motion.button whileTap={{ scale: 0.95 }} onClick={handleOpenRelModal}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
+              style={{ background: 'rgba(99,102,241,0.08)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)' }}>
+              <GitMerge size={14} /> Relationships
+            </motion.button>
             <motion.button whileTap={{ scale: 0.95 }} onClick={exportCsv}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
               style={{ background: 'rgba(16,185,129,0.08)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)' }}>

@@ -38,7 +38,10 @@ async function generateFingerprint(analysisId, fileName, rows, filePath = null) 
 
 exports.getFingerprint = async (req, res) => {
   try {
-    const fp = await Fingerprint.findOne({ where: { analysisId: req.params.analysisId } });
+    const fp = await Fingerprint.findOne({
+      where: { analysisId: req.params.analysisId },
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: [] }],
+    });
     if (!fp) return res.status(404).json({ error: 'Fingerprint not found for this analysis' });
     res.json(fp);
   } catch (err) {
@@ -56,9 +59,10 @@ exports.compare = async (req, res) => {
     return res.status(400).json({ error: 'analysisIdA and analysisIdB are required' });
 
   try {
+    const userWhere = { userId: req.userId };
     const [fpA, fpB] = await Promise.all([
-      Fingerprint.findOne({ where: { analysisId: analysisIdA } }),
-      Fingerprint.findOne({ where: { analysisId: analysisIdB } }),
+      Fingerprint.findOne({ where: { analysisId: analysisIdA }, include: [{ model: Analysis, where: userWhere, attributes: [] }] }),
+      Fingerprint.findOne({ where: { analysisId: analysisIdB }, include: [{ model: Analysis, where: userWhere, attributes: [] }] }),
     ]);
 
     if (!fpA) return res.status(404).json({ error: `No fingerprint for analysisId ${analysisIdA}` });
@@ -134,6 +138,7 @@ exports.getDuplicates = async (req, res) => {
   try {
     const all = await Fingerprint.findAll({
       attributes: ['analysisId', 'fileName', 'compositeHash', 'fileHash', 'rowCount', 'createdAt'],
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: [] }],
       order: [['createdAt', 'ASC']],
     });
 
@@ -161,11 +166,15 @@ exports.getDuplicates = async (req, res) => {
 exports.getSimilar = async (req, res) => {
   const threshold = parseInt(req.query.threshold) || 80;
   try {
-    const target = await Fingerprint.findOne({ where: { analysisId: req.params.analysisId } });
+    const target = await Fingerprint.findOne({
+      where: { analysisId: req.params.analysisId },
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: [] }],
+    });
     if (!target) return res.status(404).json({ error: 'Fingerprint not found' });
 
     const others = await Fingerprint.findAll({
       where: { analysisId: { [Op.ne]: req.params.analysisId } },
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: [] }],
     });
 
     const results = others
@@ -185,6 +194,7 @@ exports.getAll = async (req, res) => {
   try {
     const fps = await Fingerprint.findAll({
       attributes: ['id', 'analysisId', 'fileName', 'fileHash', 'compositeHash', 'rowCount', 'columnCount', 'schemaSignature', 'createdAt'],
+      include: [{ model: Analysis, where: { userId: req.userId }, attributes: [] }],
       order: [['createdAt', 'DESC']],
     });
     res.json(fps);

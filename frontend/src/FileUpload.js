@@ -109,9 +109,11 @@ function FileUpload({ onAnalysisComplete, large }) {
   const [showPicker, setShowPicker] = useState(false);   // file type modal
   const [chosen, setChosen] = useState(null);            // FILE_TYPES entry
   const [file, setFile] = useState(null);
+  const [fileQueue, setFileQueue] = useState([]);         // multi-file queue
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [queueProgress, setQueueProgress] = useState(null); // { current, total }
   // Sheet picker state
   const [sheets, setSheets] = useState(null);            // array of sheet info
   const [tempId, setTempId] = useState(null);            // server-side temp file id
@@ -128,8 +130,8 @@ function FileUpload({ onAnalysisComplete, large }) {
   }, [showPicker]);
 
   const reset = () => {
-    setChosen(null); setFile(null); setUrl(''); setError(null);
-    setShowPicker(false); setSheets(null); setTempId(null); setLoadingSheets(false);
+    setChosen(null); setFile(null); setFileQueue([]); setUrl(''); setError(null);
+    setShowPicker(false); setSheets(null); setTempId(null); setLoadingSheets(false); setQueueProgress(null);
   };
 
   const selectType = (type) => {
@@ -141,9 +143,20 @@ function FileUpload({ onAnalysisComplete, large }) {
 
   // When a file is chosen from OS picker
   const handleFileChange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setFile(f); setError(null); setSheets(null); setTempId(null);
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setError(null); setSheets(null); setTempId(null);
+
+    if (files.length > 1) {
+      // Multi-file: skip sheet picker, queue all files
+      setFileQueue(files);
+      setFile(null);
+      e.target.value = '';
+      return;
+    }
+
+    const f = files[0];
+    setFile(f); setFileQueue([]);
 
     // If Excel/ODS — fetch sheet names before showing analyze button
     if (chosen?.hasSheets) {
@@ -152,7 +165,6 @@ function FileUpload({ onAnalysisComplete, large }) {
         const data = await api.getSheets(f);
         if (data.error) throw new Error(data.error);
         if (data.sheets.length === 1) {
-          // Only one sheet — skip picker, go straight to analyze
           setTempId(data.tempId);
           setSheets(null);
         } else {
@@ -165,7 +177,6 @@ function FileUpload({ onAnalysisComplete, large }) {
         setLoadingSheets(false);
       }
     }
-    // Reset input so same file can be re-selected
     e.target.value = '';
   };
 
@@ -180,9 +191,32 @@ function FileUpload({ onAnalysisComplete, large }) {
       await runAnalysis({});
     } else if (chosen?.hasSheets && sheets) {
       // sheets modal is open — wait for user to pick
+    } else if (fileQueue.length > 0) {
+      await runQueueAnalysis();
     } else {
       await runAnalysis({});
     }
+  };
+
+  const runQueueAnalysis = async () => {
+    setLoading(true); setError(null);
+    const total = fileQueue.length;
+    let lastResult = null;
+    for (let i = 0; i < total; i++) {
+      setQueueProgress({ current: i + 1, total });
+      try {
+        const result = await api.uploadFile(fileQueue[i], null);
+        if (result.error) throw new Error(result.error);
+        lastResult = result;
+        if (onAnalysisComplete) onAnalysisComplete(result);
+      } catch (err) {
+        setError(`Failed on "${fileQueue[i].name}": ${err.message}`);
+        setLoading(false); setQueueProgress(null);
+        return;
+      }
+    }
+    reset();
+    setLoading(false);
   };
 
   const runAnalysis = async ({ sheetName } = {}) => {
@@ -193,7 +227,6 @@ function FileUpload({ onAnalysisComplete, large }) {
         if (!url.trim()) throw new Error('Please paste a Google Sheets URL');
         result = await api.uploadFromUrl(url.trim());
       } else if (tempId) {
-        // Re-use pre-uploaded temp file with chosen sheet
         result = await api.uploadFile(null, sheetName || null, tempId, file?.name);
       } else {
         if (!file) throw new Error('Please choose a file');
@@ -218,12 +251,12 @@ function FileUpload({ onAnalysisComplete, large }) {
   const labelColor = dark ? '#f9fafb' : '#111827';
   const subColor = dark ? '#6b7280' : '#9ca3af';
 
-  // Can proceed to analyze: gsheet needs url, excel needs tempId (sheets resolved), others need file
+  // Can proceed to analyze
   const canAnalyze = chosen?.id === 'gsheet'
     ? !!url.trim()
     : chosen?.hasSheets
-      ? !!tempId && !sheets  // tempId set and sheet picker not open
-      : !!file;
+      ? !!tempId && !sheets
+      : fileQueue.length > 0 || !!file;
 
   const uploadBtn = (btnLarge) => (
     <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
@@ -298,6 +331,7 @@ function FileUpload({ onAnalysisComplete, large }) {
 
   const hiddenInput = (
     <input ref={fileInputRef} type="file" accept={chosen?.accept || '*'} className="hidden"
+      multiple={chosen?.id !== 'gsheet' && !chosen?.hasSheets}
       onChange={handleFileChange} />
   );
 
@@ -317,13 +351,19 @@ function FileUpload({ onAnalysisComplete, large }) {
           <chosen.icon size={14} style={{ color: '#10b981' }} />
           {loadingSheets
             ? 'Reading sheets…'
-            : file
-              ? (file.name.length > 22 ? file.name.slice(0, 22) + '…' : file.name)
-              : `Choose ${chosen.label} file`
+            : fileQueue.length > 0
+              ? `${fileQueue.length} files selected`
+              : file
+                ? (file.name.length > 22 ? file.name.slice(0, 22) + '…' : file.name)
+                : `Choose ${chosen.label} file`
           }
           {chosen.hasSheets && !file && (
             <span className="text-xs ml-1 px-1.5 py-0.5 rounded-md"
               style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}>multi-sheet</span>
+          )}
+          {!chosen.hasSheets && chosen.id !== 'gsheet' && !file && !fileQueue.length && (
+            <span className="text-xs ml-1 px-1.5 py-0.5 rounded-md"
+              style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>multi-file</span>
           )}
         </button>
       )}
@@ -340,7 +380,14 @@ function FileUpload({ onAnalysisComplete, large }) {
         <motion.button whileTap={{ scale: 0.95 }} onClick={handleAnalyze} disabled={loading}
           className={`text-white font-semibold rounded-xl disabled:opacity-50 ${large ? 'px-8 py-3' : 'px-4 py-2 text-sm'}`}
           style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 2px 12px rgba(16,185,129,0.3)' }}>
-          {loading ? 'Analyzing…' : large ? 'Analyze Now' : 'Analyze'}
+          {loading
+            ? queueProgress
+              ? `Analyzing ${queueProgress.current}/${queueProgress.total}…`
+              : 'Analyzing…'
+            : fileQueue.length > 1
+              ? `Analyze ${fileQueue.length} Files`
+              : large ? 'Analyze Now' : 'Analyze'
+          }
         </motion.button>
       )}
 
